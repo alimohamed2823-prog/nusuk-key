@@ -1,3 +1,4 @@
+
 (() => {
   'use strict';
 
@@ -16,9 +17,7 @@
 
   try {
     hidden = new Set(JSON.parse(localStorage.getItem(hiddenKey) || '[]'));
-  } catch {
-    hidden = new Set();
-  }
+  } catch {}
 
   const valid = s => /^NG-[A-Za-z0-9]{8}$/.test(s);
 
@@ -29,12 +28,12 @@
     el.textContent = text;
   }
 
-  function toast(msg) {
-    const t = $('toast');
-    if (!t) return;
-    t.textContent = msg;
-    t.classList.add('show');
-    setTimeout(() => t.classList.remove('show'), 2500);
+  function toast(text) {
+    const el = $('toast');
+    if (!el) return;
+    el.textContent = text;
+    el.classList.add('show');
+    setTimeout(() => el.classList.remove('show'), 2500);
   }
 
   function saveHidden() {
@@ -52,11 +51,9 @@
     const visible = allCodes.filter(c => c.is_pinned || !hidden.has(c.code));
 
     $('totalCount').textContent = allCodes.length.toLocaleString('en-US');
-
     $('todayCount').textContent = allCodes.filter(c =>
       new Date(c.created_at).toDateString() === new Date().toDateString()
     ).length.toLocaleString('en-US');
-
     $('usedCount').textContent = hidden.size.toLocaleString('en-US');
     $('shownCount').textContent = visible.length.toLocaleString('en-US');
   }
@@ -65,7 +62,6 @@
     document.querySelectorAll('.tab').forEach(b => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
-
     $('codesPanel').hidden = tab !== 'codes';
     $('sharePanel').hidden = tab !== 'share';
     $('adminPanel').hidden = true;
@@ -81,11 +77,6 @@
     const label = document.createElement('span');
     label.className = 'code-label';
     label.textContent = c.is_pinned ? 'مفتاح مثبت' : 'مفتاح مشاركة';
-
-    const code = document.createElement('span');
-    code.className = 'code-value';
-    code.textContent = c.code;
-
     top.append(label);
 
     if (c.is_pinned) {
@@ -95,6 +86,9 @@
       top.append(badge);
     }
 
+    const code = document.createElement('span');
+    code.className = 'code-value';
+    code.textContent = c.code;
     el.append(top, code);
 
     const actions = document.createElement('div');
@@ -103,7 +97,6 @@
     const open = document.createElement('button');
     open.className = 'open-btn';
     open.textContent = '↗ فتح في نسك';
-
     open.onclick = () => {
       hide(c.code);
       updateStats();
@@ -114,7 +107,6 @@
     const copy = document.createElement('button');
     copy.className = 'copy-btn';
     copy.textContent = '▢ نسخ';
-
     copy.onclick = async () => {
       try {
         await navigator.clipboard.writeText(c.code);
@@ -122,7 +114,6 @@
       } catch {
         toast('انسخ المفتاح يدويًا: ' + c.code);
       }
-
       hide(c.code);
       updateStats();
       render();
@@ -130,13 +121,13 @@
 
     actions.append(open, copy);
     el.append(actions);
-
     return el;
   }
 
   function render() {
     const list = $('codesList');
     const pin = $('pinnedSlot');
+    if (!list || !pin) return;
 
     list.innerHTML = '';
     pin.innerHTML = '';
@@ -144,13 +135,11 @@
     const q = $('searchInput').value.trim().toLowerCase();
 
     let arr = allCodes.filter(c =>
-      !c.is_pinned &&
-      !hidden.has(c.code) &&
+      !c.is_pinned && !hidden.has(c.code) &&
       c.code.toLowerCase().includes(q)
     );
 
     const sort = $('sortSelect').value;
-
     if (sort === 'old') arr.reverse();
     if (sort === 'random') arr.sort(() => Math.random() - 0.5);
 
@@ -166,14 +155,13 @@
     const slice = arr.slice(0, page * pageSize);
 
     if (!slice.length && !pin.children.length) {
-      list.innerHTML = '<div class="empty">لا توجد مفاتيح ظاهرة. جرّب البحث أو أضف مفاتيح جديدة.</div>';
+      list.innerHTML = '<div class="empty">لا توجد مفاتيح ظاهرة.</div>';
     } else {
       slice.forEach(c => list.append(card(c)));
     }
 
     $('loadMore').hidden = slice.length >= arr.length;
     $('loadMore').textContent = 'عرض المزيد';
-
     updateStats();
   }
 
@@ -184,10 +172,8 @@
         is_pinned: true,
         created_at: new Date().toISOString()
       }];
-
       $('codesList').innerHTML =
         '<div class="empty">تعذر الاتصال بقاعدة البيانات. راجع إعدادات Supabase.</div>';
-
       render();
       return;
     }
@@ -215,63 +201,62 @@
 
       page = 1;
       render();
-
     } catch (error) {
       console.error('Load error:', error);
-      $('codesList').innerHTML =
-        '<div class="empty">تعذر تحميل المفاتيح: ' + error.message + '</div>';
+      $('codesList').textContent = 'تعذر تحميل المفاتيح: ' + error.message;
     }
   }
 
   async function shareCodes() {
     const btn = $('submitCodes');
+    const input = $('bulkCodes');
+
+    if (!btn || !input) return;
+
+    if (!db) {
+      message('الاتصال بقاعدة البيانات غير متاح. راجع إعدادات Supabase.');
+      return;
+    }
+
+    const raw = input.value || '';
+
+    const tokens = raw.split(/[\s,;]+/)
+      .map(s => s.trim())
+      .filter(Boolean)
+      .map(s => {
+        const match = s.match(/NG-[A-Za-z0-9]{8}/i);
+        return match ? match[0] : s;
+      });
+
+    const unique = [...new Set(tokens.map(s =>
+      s.toUpperCase().startsWith('NG-')
+        ? 'NG-' + s.slice(3)
+        : s
+    ))];
+
+    const validCodes = unique.filter(valid).filter(c => c !== PIN);
+    const invalid = unique.length - validCodes.length;
+
+    if (!validCodes.length) {
+      message('لم نعثر على مفاتيح صحيحة. تأكد أن كل مفتاح يتكون من NG- ثم 8 أحرف أو أرقام.');
+      return;
+    }
+
+    btn.disabled = true;
+    btn.textContent = 'جارٍ الإرسال...';
+    message('جارٍ الاتصال بقاعدة البيانات...', 'success');
+
+    let added = 0;
+    let failed = 0;
+    let duplicates = 0;
+    const errors = [];
 
     try {
-      const raw = $('bulkCodes').value;
-
-      const tokens = raw.split(/[\s,;]+/)
-        .map(s => s.trim())
-        .filter(Boolean)
-        .map(s => {
-          const match = s.match(/NG-[A-Za-z0-9]{8}/i);
-          return match ? match[0] : s;
-        });
-
-      const unique = [...new Set(tokens.map(s =>
-        s.toUpperCase().startsWith('NG-')
-          ? 'NG-' + s.slice(3)
-          : s
-      ))];
-
-      const validCodes = unique.filter(valid).filter(c => c !== PIN);
-      const invalid = unique.length - validCodes.length;
-
-      if (!validCodes.length) {
-        message('لم نعثر على مفاتيح صحيحة. تأكد من صيغة المفاتيح.');
-        return;
-      }
-
-      if (!db) {
-        message('الاتصال بقاعدة البيانات غير متاح. راجع إعدادات Supabase.');
-        return;
-      }
-
-      btn.disabled = true;
-
-      let added = 0;
-      let failed = 0;
-      let completed = 0;
-
-      const totalBatches = Math.ceil(validCodes.length / 300);
-
-      for (let i = 0; i < validCodes.length; i += 300) {
-        const batch = validCodes.slice(i, i + 300);
-
-        btn.textContent =
-          `جارٍ إرسال الدفعة ${Math.ceil((i + 1) / 300)} من ${totalBatches}...`;
+      for (let i = 0; i < validCodes.length; i += 100) {
+        const batch = validCodes.slice(i, i + 100);
 
         message(
-          `تم تجهيز ${validCodes.length} مفتاح. جارٍ إرسال ${completed} من ${validCodes.length}...`,
+          `جارٍ إرسال الدفعة ${Math.floor(i / 100) + 1} من ${Math.ceil(validCodes.length / 100)}...`,
           'success'
         );
 
@@ -280,34 +265,30 @@
           is_pinned: false
         }));
 
-        try {
-          const { data, error } = await db
-            .from('nusuk_codes')
-            .upsert(rows, {
-              onConflict: 'code',
-              ignoreDuplicates: true
-            })
-            .select('id');
+        const { data, error } = await db
+          .from('nusuk_codes')
+          .upsert(rows, {
+            onConflict: 'code',
+            ignoreDuplicates: true
+          })
+          .select('id');
 
-          if (error) throw error;
-
-          added += (data || []).length;
-          completed += batch.length;
-
-        } catch (error) {
-          console.error('Batch error:', error);
+        if (error) {
           failed += batch.length;
-          completed += batch.length;
+          errors.push(error.message);
+          console.error('Supabase insert error:', error);
+        } else {
+          const inserted = (data || []).length;
+          added += inserted;
+          duplicates += batch.length - inserted;
         }
       }
 
-      const duplicates = validCodes.length - added - failed;
-
       if (failed === validCodes.length) {
         message(
-          'فشل إرسال جميع المفاتيح. السبب: تحقق من صلاحيات قاعدة البيانات. ' +
-          'التفاصيل: افتح Console لمراجعة الخطأ.',
-          'error'
+          'لم تتم إضافة أي مفتاح.\nسبب المشكلة: ' +
+          (errors[0] || 'خطأ غير معروف') +
+          '\nافتح Console إذا احتجنا تفاصيل إضافية.'
         );
       } else {
         message(
@@ -315,20 +296,17 @@
           `مفاتيح جديدة: ${added}\n` +
           `مكررة: ${duplicates}\n` +
           `غير صالحة: ${invalid}\n` +
-          `دفعات فاشلة: ${failed}`,
+          `مفاتيح فشل إرسالها: ${failed}` +
+          (errors.length ? '\nالخطأ: ' + errors[0] : ''),
           failed ? 'error' : 'success'
         );
 
-        if (failed === 0) {
-          $('bulkCodes').value = '';
-        }
-
+        if (failed === 0) input.value = '';
         await load();
       }
-
     } catch (error) {
       console.error('Share error:', error);
-      message('حدث خطأ أثناء الإرسال: ' + error.message);
+      message('حدث خطأ: ' + error.message);
     } finally {
       btn.disabled = false;
       btn.textContent = '＋ مشاركة المفاتيح';
@@ -348,6 +326,7 @@
 
     if (error) {
       toast('تعذر تحميل المفاتيح');
+      console.error(error);
       return;
     }
 
@@ -372,6 +351,7 @@
 
         if (error) {
           toast('تعذر الحذف');
+          console.error(error);
         } else {
           toast('تم حذف المفتاح');
           adminLoad();
@@ -385,16 +365,20 @@
   }
 
   function start() {
-    if (
-      cfg.SUPABASE_URL &&
-      cfg.SUPABASE_ANON_KEY &&
-      window.supabase &&
-      typeof window.supabase.createClient === 'function'
-    ) {
-      db = window.supabase.createClient(
-        cfg.SUPABASE_URL,
-        cfg.SUPABASE_ANON_KEY
-      );
+    try {
+      if (
+        cfg.SUPABASE_URL &&
+        cfg.SUPABASE_ANON_KEY &&
+        window.supabase &&
+        typeof window.supabase.createClient === 'function'
+      ) {
+        db = window.supabase.createClient(
+          cfg.SUPABASE_URL,
+          cfg.SUPABASE_ANON_KEY
+        );
+      }
+    } catch (error) {
+      console.error('Supabase initialization error:', error);
     }
 
     document.querySelectorAll('.tab').forEach(b => {
@@ -425,7 +409,10 @@
       toast('تم إظهار كل المفاتيح مرة أخرى');
     };
 
-    $('submitCodes').onclick = shareCodes;
+    $('submitCodes').addEventListener('click', event => {
+      event.preventDefault();
+      shareCodes();
+    });
 
     $('adminToggle').onclick = () => {
       $('codesPanel').hidden = true;
@@ -446,19 +433,19 @@
 
       if (error) {
         $('loginResult').className = 'result error';
-        $('loginResult').textContent = 'تعذر تسجيل الدخول.';
+        $('loginResult').textContent = 'تعذر تسجيل الدخول: ' + error.message;
         return;
       }
 
       adminUser = data.user;
 
-      const { data: row } = await db
+      const { data: row, error: adminError } = await db
         .from('site_admins')
         .select('user_id')
         .eq('user_id', adminUser.id)
         .maybeSingle();
 
-      if (!row) {
+      if (adminError || !row) {
         await db.auth.signOut();
         $('loginResult').className = 'result error';
         $('loginResult').textContent = 'هذا الحساب ليس لديه صلاحية إدارة.';
@@ -487,5 +474,4 @@
   } else {
     start();
   }
-
 })();
