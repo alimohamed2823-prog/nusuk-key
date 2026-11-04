@@ -1,0 +1,51 @@
+<!doctype html>
+<html lang="ar" dir="rtl">
+<head>
+<meta charset="utf-8"><meta name="viewport" content="width=device-width,initial-scale=1">
+<meta name="theme-color" content="#073d2e"><meta name="description" content="مفاتيح نسك - مشاركة وتجميع أكواد تحدي نسك">
+<title>مفاتيح نسك</title>
+<link rel="preconnect" href="https://fonts.googleapis.com"><link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+<link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
+<link rel="stylesheet" href="style.css">
+<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+</head>
+<body>
+<header class="topbar"><div class="brand"><span class="brand-mark">م</span><div><b>مفاتيح نسك</b><small>مجتمع مشاركة مفاتيح التحدي</small></div></div><button class="icon-btn" id="refreshBtn" title="تحديث القائمة">↻</button></header>
+<main class="wrap">
+<section class="hero">
+  <div class="hero-head"><span class="eyebrow">مجتمع مشاركة المفاتيح</span><span class="live-dot">● مباشر</span></div>
+  <h1>مفاتيح نسك<br><span>للاستخدام والمشاركة</span></h1>
+  <p>انسخ مفتاحًا أو افتح رابطه مباشرةً في نسك، وشارك مفاتيحك ليستفيد الجميع.</p>
+  <div class="stats">
+    <div><strong id="totalCount">—</strong><span>إجمالي المفاتيح</span></div>
+    <div><strong id="todayCount">—</strong><span>أضيفت اليوم</span></div>
+    <div><strong id="usedCount">0</strong><span>أخفيتها عندك</span></div>
+    <div><strong id="shownCount">—</strong><span>المعروضة لك</span></div>
+  </div>
+</section>
+<section class="tabs"><button class="tab active" data-tab="codes">المفاتيح</button><button class="tab" data-tab="share">مشاركة</button></section>
+<section id="codesPanel" class="panel">
+  <div class="section-head"><div><h2>المفاتيح المشتركة</h2><p>افتح الرابط في نسك أو انسخ المفتاح يدويًا</p></div><button class="soft-btn" id="clearHidden">إظهار المخفي</button></div>
+  <div class="toolbar"><input id="searchInput" type="search" placeholder="ابحث عن مفتاح..."><select id="sortSelect"><option value="new">الأحدث</option><option value="old">الأقدم</option><option value="random">عشوائي</option></select></div>
+  <div id="pinnedSlot"></div><div id="codesList" class="codes-list"><div class="loading">جارٍ تحميل المفاتيح...</div></div>
+  <button id="loadMore" class="more-btn" hidden>عرض المزيد</button>
+  <div class="notice">المفاتيح التي تفتحها أو تنسخها تختفي من قائمتك أنت فقط. تظل متاحة لباقي الزوار.</div>
+</section>
+<section id="sharePanel" class="panel" hidden>
+  <div class="section-head"><div><h2>شارك مفاتيحك</h2><p>الصق حتى 1000 مفتاح في المرة الواحدة، كل مفتاح في سطر أو افصل بينها بمسافة أو فاصلة.</p></div></div>
+  <textarea id="bulkCodes" rows="10" placeholder="NG-Abc12345&#10;NG-Xyz67890&#10;NG-........"></textarea>
+  <div class="input-hint">المفتاح الصحيح يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.</div>
+  <button id="submitCodes" class="primary-btn">＋ مشاركة المفاتيح</button>
+  <div id="submitResult" class="result" aria-live="polite"></div>
+  <div class="privacy-note">بإرسال المفاتيح، أنت توافق على مشاركتها علنًا مع زوار الموقع. لا تضف أي بيانات شخصية.</div>
+</section>
+<section id="adminPanel" class="panel admin-panel" hidden>
+  <div class="section-head"><div><h2>إدارة الموقع</h2><p>إدارة المفاتيح المضافة حديثًا</p></div><button class="soft-btn" id="logoutBtn">تسجيل الخروج</button></div>
+  <div id="adminLogin"><input id="adminEmail" type="email" placeholder="البريد الإلكتروني"><input id="adminPassword" type="password" placeholder="كلمة المرور"><button id="loginBtn" class="primary-btn">دخول الإدارة</button><div id="loginResult" class="result"></div></div>
+  <div id="adminTools" hidden><div class="admin-row"><span id="adminStatus">مسجل كمدير</span><button id="adminRefresh" class="soft-btn">تحديث</button></div><div id="adminCodes"></div></div>
+</section>
+<footer><div>مفاتيح نسك — مبادرة مجتمعية مستقلة</div><small>الموقع غير تابع لتطبيق نسك أو لأي جهة رسمية. استخدام الأكواد لا يضمن الفوز أو الحصول على عمرة.</small><button class="admin-link" id="adminToggle">إدارة الموقع</button></footer>
+</main>
+<div id="toast" class="toast" role="status"></div>
+<script src="config.js"></script><script src="app.js"></script>
+</body></html>
