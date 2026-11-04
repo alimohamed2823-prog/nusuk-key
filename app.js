@@ -1,8 +1,8 @@
-
 (() => {
   'use strict';
 
   const $ = id => document.getElementById(id);
+
   const cfg = window.NUSUK_CONFIG || {};
   const PIN = 'NG-moe8R4N6';
   const LINK = 'https://services.nusuk.sa/app?p=27&id=';
@@ -12,6 +12,8 @@
   let allCodes = [];
   let page = 1;
   const pageSize = 30;
+  const batchSize = 1000;
+  const maxCodes = 100000;
   let adminUser = null;
   let hidden = new Set();
 
@@ -50,21 +52,30 @@
   function updateStats() {
     const visible = allCodes.filter(c => c.is_pinned || !hidden.has(c.code));
 
-    $('totalCount').textContent = allCodes.length.toLocaleString('en-US');
-    $('todayCount').textContent = allCodes.filter(c =>
-      new Date(c.created_at).toDateString() === new Date().toDateString()
-    ).length.toLocaleString('en-US');
-    $('usedCount').textContent = hidden.size.toLocaleString('en-US');
-    $('shownCount').textContent = visible.length.toLocaleString('en-US');
+    if ($('totalCount'))
+      $('totalCount').textContent = allCodes.length.toLocaleString('en-US');
+
+    if ($('todayCount'))
+      $('todayCount').textContent = allCodes.filter(c =>
+        c.created_at &&
+        new Date(c.created_at).toDateString() === new Date().toDateString()
+      ).length.toLocaleString('en-US');
+
+    if ($('usedCount'))
+      $('usedCount').textContent = hidden.size.toLocaleString('en-US');
+
+    if ($('shownCount'))
+      $('shownCount').textContent = visible.length.toLocaleString('en-US');
   }
 
   function setTab(tab) {
     document.querySelectorAll('.tab').forEach(b => {
       b.classList.toggle('active', b.dataset.tab === tab);
     });
-    $('codesPanel').hidden = tab !== 'codes';
-    $('sharePanel').hidden = tab !== 'share';
-    $('adminPanel').hidden = true;
+
+    if ($('codesPanel')) $('codesPanel').hidden = tab !== 'codes';
+    if ($('sharePanel')) $('sharePanel').hidden = tab !== 'share';
+    if ($('adminPanel')) $('adminPanel').hidden = true;
   }
 
   function card(c) {
@@ -97,6 +108,7 @@
     const open = document.createElement('button');
     open.className = 'open-btn';
     open.textContent = '↗ فتح في نسك';
+
     open.onclick = () => {
       hide(c.code);
       updateStats();
@@ -107,6 +119,7 @@
     const copy = document.createElement('button');
     copy.className = 'copy-btn';
     copy.textContent = '▢ نسخ';
+
     copy.onclick = async () => {
       try {
         await navigator.clipboard.writeText(c.code);
@@ -114,6 +127,7 @@
       } catch {
         toast('انسخ المفتاح يدويًا: ' + c.code);
       }
+
       hide(c.code);
       updateStats();
       render();
@@ -121,25 +135,31 @@
 
     actions.append(open, copy);
     el.append(actions);
+
     return el;
   }
 
   function render() {
     const list = $('codesList');
     const pin = $('pinnedSlot');
+
     if (!list || !pin) return;
 
     list.innerHTML = '';
     pin.innerHTML = '';
 
-    const q = $('searchInput').value.trim().toLowerCase();
+    const q = $('searchInput')
+      ? $('searchInput').value.trim().toLowerCase()
+      : '';
 
     let arr = allCodes.filter(c =>
-      !c.is_pinned && !hidden.has(c.code) &&
+      !c.is_pinned &&
+      !hidden.has(c.code) &&
       c.code.toLowerCase().includes(q)
     );
 
-    const sort = $('sortSelect').value;
+    const sort = $('sortSelect') ? $('sortSelect').value : 'new';
+
     if (sort === 'old') arr.reverse();
     if (sort === 'random') arr.sort(() => Math.random() - 0.5);
 
@@ -160,11 +180,15 @@
       slice.forEach(c => list.append(card(c)));
     }
 
-    $('loadMore').hidden = slice.length >= arr.length;
-    $('loadMore').textContent = 'عرض المزيد';
+    if ($('loadMore')) {
+      $('loadMore').hidden = slice.length >= arr.length;
+      $('loadMore').textContent = 'عرض المزيد';
+    }
+
     updateStats();
   }
 
+  // تحميل حتى 100 ألف مفتاح على دفعات
   async function load() {
     if (!db) {
       allCodes = [{
@@ -172,24 +196,45 @@
         is_pinned: true,
         created_at: new Date().toISOString()
       }];
-      $('codesList').innerHTML =
-        '<div class="empty">تعذر الاتصال بقاعدة البيانات. راجع إعدادات Supabase.</div>';
+
+      if ($('codesList')) {
+        $('codesList').innerHTML =
+          '<div class="empty">تعذر الاتصال بقاعدة البيانات. راجع إعدادات Supabase.</div>';
+      }
+
       render();
       return;
     }
 
-    $('codesList').innerHTML = '<div class="loading">جارٍ تحميل المفاتيح...</div>';
+    if ($('codesList')) {
+      $('codesList').innerHTML =
+        '<div class="loading">جارٍ تحميل المفاتيح...</div>';
+    }
 
     try {
-      const { data, error } = await db
-        .from('nusuk_codes')
-        .select('id,code,is_pinned,created_at')
-        .order('created_at', { ascending: false })
-        .limit(10000);
+      allCodes = [];
 
-      if (error) throw error;
+      for (let from = 0; from < maxCodes; from += batchSize) {
+        const to = from + batchSize - 1;
 
-      allCodes = data || [];
+        const { data, error } = await db
+          .from('nusuk_codes')
+          .select('id,code,is_pinned,created_at')
+          .order('created_at', { ascending: false })
+          .range(from, to);
+
+        if (error) throw error;
+
+        const batch = data || [];
+        allCodes.push(...batch);
+
+        if ($('codesList')) {
+          $('codesList').innerHTML =
+            `<div class="loading">تم تحميل ${allCodes.length.toLocaleString('en-US')} مفتاح...</div>`;
+        }
+
+        if (batch.length < batchSize) break;
+      }
 
       if (!allCodes.some(c => c.code === PIN)) {
         allCodes.unshift({
@@ -201,9 +246,14 @@
 
       page = 1;
       render();
+
     } catch (error) {
       console.error('Load error:', error);
-      $('codesList').textContent = 'تعذر تحميل المفاتيح: ' + error.message;
+
+      if ($('codesList')) {
+        $('codesList').textContent =
+          'تعذر تحميل المفاتيح: ' + error.message;
+      }
     }
   }
 
@@ -287,8 +337,7 @@
       if (failed === validCodes.length) {
         message(
           'لم تتم إضافة أي مفتاح.\nسبب المشكلة: ' +
-          (errors[0] || 'خطأ غير معروف') +
-          '\nافتح Console إذا احتجنا تفاصيل إضافية.'
+          (errors[0] || 'خطأ غير معروف')
         );
       } else {
         message(
@@ -302,11 +351,14 @@
         );
 
         if (failed === 0) input.value = '';
+
         await load();
       }
+
     } catch (error) {
       console.error('Share error:', error);
       message('حدث خطأ: ' + error.message);
+
     } finally {
       btn.disabled = false;
       btn.textContent = '＋ مشاركة المفاتيح';
@@ -322,7 +374,7 @@
       .order('created_at', { ascending: false })
       .limit(100);
 
-    $('adminCodes').innerHTML = '';
+    if ($('adminCodes')) $('adminCodes').innerHTML = '';
 
     if (error) {
       toast('تعذر تحميل المفاتيح');
@@ -385,86 +437,104 @@
       b.addEventListener('click', () => setTab(b.dataset.tab));
     });
 
-    $('searchInput').addEventListener('input', () => {
-      page = 1;
-      render();
-    });
-
-    $('sortSelect').addEventListener('change', () => {
-      page = 1;
-      render();
-    });
-
-    $('loadMore').onclick = () => {
-      page++;
-      render();
-    };
-
-    $('refreshBtn').onclick = load;
-
-    $('clearHidden').onclick = () => {
-      hidden.clear();
-      saveHidden();
-      render();
-      toast('تم إظهار كل المفاتيح مرة أخرى');
-    };
-
-    $('submitCodes').addEventListener('click', event => {
-      event.preventDefault();
-      shareCodes();
-    });
-
-    $('adminToggle').onclick = () => {
-      $('codesPanel').hidden = true;
-      $('sharePanel').hidden = true;
-      $('adminPanel').hidden = false;
-    };
-
-    $('loginBtn').onclick = async () => {
-      if (!db) {
-        $('loginResult').textContent = 'تعذر الاتصال بقاعدة البيانات.';
-        return;
-      }
-
-      const { data, error } = await db.auth.signInWithPassword({
-        email: $('adminEmail').value,
-        password: $('adminPassword').value
+    if ($('searchInput')) {
+      $('searchInput').addEventListener('input', () => {
+        page = 1;
+        render();
       });
+    }
 
-      if (error) {
-        $('loginResult').className = 'result error';
-        $('loginResult').textContent = 'تعذر تسجيل الدخول: ' + error.message;
-        return;
-      }
+    if ($('sortSelect')) {
+      $('sortSelect').addEventListener('change', () => {
+        page = 1;
+        render();
+      });
+    }
 
-      adminUser = data.user;
+    if ($('loadMore')) {
+      $('loadMore').onclick = () => {
+        page++;
+        render();
+      };
+    }
 
-      const { data: row, error: adminError } = await db
-        .from('site_admins')
-        .select('user_id')
-        .eq('user_id', adminUser.id)
-        .maybeSingle();
+    if ($('refreshBtn')) $('refreshBtn').onclick = load;
 
-      if (adminError || !row) {
-        await db.auth.signOut();
-        $('loginResult').className = 'result error';
-        $('loginResult').textContent = 'هذا الحساب ليس لديه صلاحية إدارة.';
-        return;
-      }
+    if ($('clearHidden')) {
+      $('clearHidden').onclick = () => {
+        hidden.clear();
+        saveHidden();
+        render();
+        toast('تم إظهار كل المفاتيح مرة أخرى');
+      };
+    }
 
-      $('adminLogin').hidden = true;
-      $('adminTools').hidden = false;
-      adminLoad();
-    };
+    if ($('submitCodes')) {
+      $('submitCodes').addEventListener('click', event => {
+        event.preventDefault();
+        shareCodes();
+      });
+    }
 
-    $('adminRefresh').onclick = adminLoad;
+    if ($('adminToggle')) {
+      $('adminToggle').onclick = () => {
+        $('codesPanel').hidden = true;
+        $('sharePanel').hidden = true;
+        $('adminPanel').hidden = false;
+      };
+    }
 
-    $('logoutBtn').onclick = async () => {
-      if (db) await db.auth.signOut();
-      adminUser = null;
-      $('adminTools').hidden = true;
-      $('adminLogin').hidden = false;
-    };
+    if ($('loginBtn')) {
+      $('loginBtn').onclick = async () => {
+        if (!db) {
+          $('loginResult').textContent = 'تعذر الاتصال بقاعدة البيانات.';
+          return;
+        }
+
+        const { data, error } = await db.auth.signInWithPassword({
+          email: $('adminEmail').value,
+          password: $('adminPassword').value
+        });
+
+        if (error) {
+          $('loginResult').className = 'result error';
+          $('loginResult').textContent =
+            'تعذر تسجيل الدخول: ' + error.message;
+          return;
+        }
+
+        adminUser = data.user;
+
+        const { data: row, error: adminError } = await db
+          .from('site_admins')
+          .select('user_id')
+          .eq('user_id', adminUser.id)
+          .maybeSingle();
+
+        if (adminError || !row) {
+          await db.auth.signOut();
+          $('loginResult').className = 'result error';
+          $('loginResult').textContent =
+            'هذا الحساب ليس لديه صلاحية إدارة.';
+          return;
+        }
+
+        $('adminLogin').hidden = true;
+        $('adminTools').hidden = false;
+        adminLoad();
+      };
+    }
+
+    if ($('adminRefresh')) $('adminRefresh').onclick = adminLoad;
+
+    if ($('logoutBtn')) {
+      $('logoutBtn').onclick = async () => {
+        if (db) await db.auth.signOut();
+        adminUser = null;
+        $('adminTools').hidden = true;
+        $('adminLogin').hidden = false;
+      };
+    }
 
     load();
   }
