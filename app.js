@@ -1,3 +1,4 @@
+
 (() => {
   'use strict';
 
@@ -152,9 +153,15 @@
       ? $('searchInput').value.trim().toLowerCase()
       : '';
 
-    let arr = allCodes.filter(c =>
+    const pinned = allCodes.filter(c => c.is_pinned);
+
+    const arr = allCodes.filter(c =>
       !c.is_pinned &&
       !hidden.has(c.code) &&
+      c.code.toLowerCase().includes(q)
+    );
+
+    const matchingPinned = pinned.filter(c =>
       c.code.toLowerCase().includes(q)
     );
 
@@ -163,14 +170,7 @@
     if (sort === 'old') arr.reverse();
     if (sort === 'random') arr.sort(() => Math.random() - 0.5);
 
-    const pinned = allCodes.find(c => c.is_pinned) || {
-      code: PIN,
-      is_pinned: true
-    };
-
-    if (pinned.code.toLowerCase().includes(q)) {
-      pin.append(card(pinned));
-    }
+    matchingPinned.forEach(c => pin.append(card(c)));
 
     const slice = arr.slice(0, page * pageSize);
 
@@ -188,7 +188,7 @@
     updateStats();
   }
 
-  // تحميل حتى 100 ألف مفتاح على دفعات
+  // تحميل المفاتيح على دفعات حتى 100 ألف
   async function load() {
     if (!db) {
       allCodes = [{
@@ -236,7 +236,12 @@
         if (batch.length < batchSize) break;
       }
 
-      if (!allCodes.some(c => c.code === PIN)) {
+      // ضمان ظهور المفتاح الأساسي ضمن المميزين
+      const mainPin = allCodes.find(c => c.code === PIN);
+
+      if (mainPin) {
+        mainPin.is_pinned = true;
+      } else {
         allCodes.unshift({
           code: PIN,
           is_pinned: true,
@@ -365,55 +370,221 @@
     }
   }
 
-  async function adminLoad() {
-    if (!db) return;
-
-    const { data, error } = await db
-      .from('nusuk_codes')
-      .select('id,code,is_pinned')
-      .order('created_at', { ascending: false })
-      .limit(100);
-
-    if ($('adminCodes')) $('adminCodes').innerHTML = '';
-
-    if (error) {
-      toast('تعذر تحميل المفاتيح');
-      console.error(error);
+  function adminMessage(text, type = 'error') {
+    const el = $('pinnedResult');
+    if (!el) {
+      toast(text);
       return;
     }
 
-    (data || []).filter(c => !c.is_pinned).forEach(c => {
-      const row = document.createElement('div');
-      row.className = 'admin-code';
+    el.className = 'result ' + type;
+    el.textContent = text;
+  }
 
-      const span = document.createElement('span');
-      span.textContent = c.code;
+  // إضافة مفتاح مميز أو تحويل مفتاح موجود إلى مميز
+  async function addPinnedCode() {
+    const input = $('pinnedCodeInput');
+    if (!input || !db || !adminUser) {
+      adminMessage('سجّل دخولك إلى لوحة الإدارة أولاً.');
+      return;
+    }
 
-      const del = document.createElement('button');
-      del.className = 'delete-btn';
-      del.textContent = 'حذف';
+    const code = input.value.trim().toUpperCase();
 
-      del.onclick = async () => {
-        if (!confirm('حذف هذا المفتاح من قائمة الجميع؟')) return;
+    if (!valid(code)) {
+      adminMessage('المفتاح غير صحيح. يجب أن يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.');
+      return;
+    }
+
+    const btn = $('addPinnedBtn');
+    if (btn) btn.disabled = true;
+
+    try {
+      const { data: existing, error: findError } = await db
+        .from('nusuk_codes')
+        .select('id,is_pinned')
+        .eq('code', code)
+        .maybeSingle();
+
+      if (findError) throw findError;
+
+      if (existing) {
+        if (existing.is_pinned) {
+          adminMessage('هذا المفتاح مميز بالفعل.', 'success');
+          return;
+        }
 
         const { error } = await db
           .from('nusuk_codes')
-          .delete()
-          .eq('id', c.id);
+          .update({ is_pinned: true })
+          .eq('id', existing.id);
 
-        if (error) {
-          toast('تعذر الحذف');
-          console.error(error);
-        } else {
-          toast('تم حذف المفتاح');
-          adminLoad();
-          load();
-        }
-      };
+        if (error) throw error;
 
-      row.append(span, del);
-      $('adminCodes').append(row);
-    });
+        adminMessage('تم تحويل المفتاح الموجود إلى مفتاح مميز بنجاح.', 'success');
+
+      } else {
+        const { error } = await db
+          .from('nusuk_codes')
+          .insert({ code, is_pinned: true });
+
+        if (error) throw error;
+
+        adminMessage('تمت إضافة المفتاح المميز بنجاح.', 'success');
+      }
+
+      input.value = '';
+      await load();
+      await adminLoad();
+
+    } catch (error) {
+      console.error('Add pinned error:', error);
+      adminMessage('تعذرت إضافة المفتاح: ' + error.message);
+
+    } finally {
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  // تغيير حالة التمييز
+  async function togglePinned(c) {
+    if (!adminUser || !db) return;
+
+    if (!c.id) {
+      // المفتاح الافتراضي غير الموجود في قاعدة البيانات
+      if (c.code === PIN) {
+        toast('المفتاح الأساسي يظل مميزاً.');
+        return;
+      }
+      return;
+    }
+
+    const nextValue = !c.is_pinned;
+
+    try {
+      const { error } = await db
+        .from('nusuk_codes')
+        .update({ is_pinned: nextValue })
+        .eq('id', c.id);
+
+      if (error) throw error;
+
+      toast(nextValue ? 'تم تمييز المفتاح' : 'تم إلغاء تمييز المفتاح');
+      await load();
+      await adminLoad();
+
+    } catch (error) {
+      console.error('Toggle pinned error:', error);
+      toast('تعذر تغيير حالة المفتاح: ' + error.message);
+    }
+  }
+
+  // حذف مفتاح
+  async function deleteCode(c) {
+    if (!adminUser || !db || !c.id) return;
+
+    if (c.code === PIN) {
+      toast('لا يمكن حذف المفتاح الأساسي.');
+      return;
+    }
+
+    if (!confirm('هل تريد حذف هذا المفتاح نهائياً من قائمة الجميع؟')) return;
+
+    try {
+      const { error } = await db
+        .from('nusuk_codes')
+        .delete()
+        .eq('id', c.id);
+
+      if (error) throw error;
+
+      toast('تم حذف المفتاح');
+      await load();
+      await adminLoad();
+
+    } catch (error) {
+      console.error('Delete error:', error);
+      toast('تعذر الحذف: ' + error.message);
+    }
+  }
+
+  // عرض المفاتيح المميزة وأحدث 100 مفتاح عادي في الإدارة
+  async function adminLoad() {
+    if (!db || !adminUser) return;
+
+    const container = $('adminCodes');
+    if (!container) return;
+
+    container.innerHTML = '<div class="loading">جارٍ تحميل مفاتيح الإدارة...</div>';
+
+    try {
+      const [pinnedResult, normalResult] = await Promise.all([
+        db.from('nusuk_codes')
+          .select('id,code,is_pinned,created_at')
+          .eq('is_pinned', true)
+          .order('created_at', { ascending: false }),
+
+        db.from('nusuk_codes')
+          .select('id,code,is_pinned,created_at')
+          .eq('is_pinned', false)
+          .order('created_at', { ascending: false })
+          .limit(100)
+      ]);
+
+      if (pinnedResult.error) throw pinnedResult.error;
+      if (normalResult.error) throw normalResult.error;
+
+      const pinnedCodes = pinnedResult.data || [];
+      const normalCodes = normalResult.data || [];
+
+      const codes = [...pinnedCodes, ...normalCodes];
+
+      container.innerHTML = '';
+
+      if (!codes.length) {
+        container.innerHTML = '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
+        return;
+      }
+
+      const heading1 = document.createElement('h3');
+      heading1.textContent = 'المفاتيح المميزة (' + pinnedCodes.length + ')';
+      container.append(heading1);
+
+      pinnedCodes.forEach(c => addAdminRow(container, c));
+
+      const heading2 = document.createElement('h3');
+      heading2.textContent = 'المفاتيح العادية (أحدث 100)';
+      container.append(heading2);
+
+      normalCodes.forEach(c => addAdminRow(container, c));
+
+    } catch (error) {
+      console.error('Admin load error:', error);
+      container.textContent = 'تعذر تحميل المفاتيح: ' + error.message;
+    }
+  }
+
+  function addAdminRow(container, c) {
+    const row = document.createElement('div');
+    row.className = 'admin-code';
+
+    const span = document.createElement('span');
+    span.textContent = c.code;
+
+    const toggle = document.createElement('button');
+    toggle.className = 'primary-btn';
+    toggle.textContent = c.is_pinned ? 'إلغاء التمييز' : 'تمييز';
+
+    toggle.onclick = () => togglePinned(c);
+
+    const del = document.createElement('button');
+    del.className = 'delete-btn';
+    del.textContent = 'حذف';
+
+    del.onclick = () => deleteCode(c);
+
+    row.append(span, toggle, del);
+    container.append(row);
   }
 
   function start() {
@@ -478,9 +649,9 @@
 
     if ($('adminToggle')) {
       $('adminToggle').onclick = () => {
-        $('codesPanel').hidden = true;
-        $('sharePanel').hidden = true;
-        $('adminPanel').hidden = false;
+        if ($('codesPanel')) $('codesPanel').hidden = true;
+        if ($('sharePanel')) $('sharePanel').hidden = true;
+        if ($('adminPanel')) $('adminPanel').hidden = false;
       };
     }
 
@@ -513,6 +684,7 @@
 
         if (adminError || !row) {
           await db.auth.signOut();
+          adminUser = null;
           $('loginResult').className = 'result error';
           $('loginResult').textContent =
             'هذا الحساب ليس لديه صلاحية إدارة.';
@@ -523,6 +695,19 @@
         $('adminTools').hidden = false;
         adminLoad();
       };
+    }
+
+    if ($('addPinnedBtn')) {
+      $('addPinnedBtn').onclick = addPinnedCode;
+    }
+
+    if ($('pinnedCodeInput')) {
+      $('pinnedCodeInput').addEventListener('keydown', event => {
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          addPinnedCode();
+        }
+      });
     }
 
     if ($('adminRefresh')) $('adminRefresh').onclick = adminLoad;
