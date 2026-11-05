@@ -12,8 +12,35 @@
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
 <script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
+<style>
+.prayer-card {
+  margin: 24px 0;
+  padding: 22px;
+  border-radius: 16px;
+  background: #f5f7fa;
+  border: 1px solid #e1e7ef;
+  text-align: center;
+  line-height: 2;
+}
+.prayer-card h2 {
+  color: #102747;
+  font-size: 19px;
+  margin: 0 0 12px;
+}
+.prayer-card p {
+  margin: 8px 0;
+  color: #34445a;
+  font-size: 14px;
+}
+.prayer-card .signature {
+  margin-top: 16px;
+  color: #102747;
+  font-weight: 700;
+}
+</style>
 </head>
 <body>
+
 <header class="topbar">
 <div class="brand">
 <span class="brand-mark">N</span>
@@ -48,7 +75,6 @@
 <div><h2>المفاتيح المشتركة</h2><p>افتح الرابط في نسك أو انسخ المفتاح يدويًا</p></div>
 <button class="soft-btn" id="clearHidden">إظهار المخفي</button>
 </div>
-
 <div class="toolbar">
 <input id="searchInput" type="search" placeholder="ابحث عن مفتاح...">
 <select id="sortSelect">
@@ -57,7 +83,6 @@
 <option value="random">عشوائي</option>
 </select>
 </div>
-
 <div id="pinnedSlot"></div>
 <div id="codesList" class="codes-list"><div class="loading">جارٍ تحميل المفاتيح...</div></div>
 <button id="loadMore" class="more-btn" hidden>عرض المزيد</button>
@@ -80,28 +105,32 @@
 <div><h2>إدارة الموقع</h2><p>إدارة المفاتيح المضافة حديثًا والمميزة</p></div>
 <button class="soft-btn" id="logoutBtn">تسجيل الخروج</button>
 </div>
-
 <div id="adminLogin">
 <input id="adminEmail" type="email" placeholder="البريد الإلكتروني">
 <input id="adminPassword" type="password" placeholder="كلمة المرور">
 <button id="loginBtn" class="primary-btn">دخول الإدارة</button>
 <div id="loginResult" class="result"></div>
 </div>
-
 <div id="adminTools" hidden>
 <div class="admin-row">
 <span id="adminStatus">مسجل كمدير</span>
 <button id="adminRefresh" class="soft-btn">تحديث</button>
 </div>
-
 <div class="admin-row">
 <input id="pinnedCodeInput" type="text" placeholder="أدخل مفتاحًا مميزًا NG-........">
 <button id="addPinnedBtn" class="primary-btn">إضافة مفتاح مميز</button>
 </div>
 <div id="pinnedResult" class="result" aria-live="polite"></div>
-
 <div id="adminCodes"></div>
 </div>
+</section>
+
+<section class="prayer-card">
+<h2>رسالة من صاحب المبادرة | أخوكم في الله علي أبوعميره</h2>
+<p>هذا الموقع مبادرة تطوعية، أسأل الله أن يجعلها خالصة لوجهه الكريم، وأن ينفع بها الجميع ويكتب لنا ولكم الأجر.</p>
+<p>لا تنسوني من صالح دعائكم، وادعوا لوالديّ بالبركة في العمر والصحة والعافية، وأن يكتب الله لي ولأهلي زيارة بيته الحرام كل عام.</p>
+<p><strong>ولعل دعوة صادقة من أحدكم تكون سببًا في تفريج كرب أو استجابة دعاء.</strong></p>
+<p class="signature">جزاكم الله خيرًا، ولا حرمكم الأجر.</p>
 </section>
 
 <footer>
@@ -112,7 +141,6 @@
 </main>
 
 <div id="toast" class="toast" role="status"></div>
-
 <script src="config.js"></script>
 <script src="app.js"></script>
 </body>
