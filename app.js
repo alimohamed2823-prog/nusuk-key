@@ -5,7 +5,6 @@
   const $ = id => document.getElementById(id);
 
   const cfg = window.NUSUK_CONFIG || {};
-  const PIN = 'NG-moe8R4N6';
   const LINK = 'https://services.nusuk.sa/app?p=27&id=';
   const hiddenKey = 'nusuk_keys_hidden_v1';
 
@@ -44,10 +43,8 @@
   }
 
   function hide(code) {
-    if (code !== PIN) {
-      hidden.add(code);
-      saveHidden();
-    }
+    hidden.add(code);
+    saveHidden();
   }
 
   function updateStats() {
@@ -191,11 +188,7 @@
   // تحميل المفاتيح على دفعات حتى 100 ألف
   async function load() {
     if (!db) {
-      allCodes = [{
-        code: PIN,
-        is_pinned: true,
-        created_at: new Date().toISOString()
-      }];
+      allCodes = [];
 
       if ($('codesList')) {
         $('codesList').innerHTML =
@@ -236,19 +229,7 @@
         if (batch.length < batchSize) break;
       }
 
-      // ضمان ظهور المفتاح الأساسي ضمن المميزين
-      const mainPin = allCodes.find(c => c.code === PIN);
-
-      if (mainPin) {
-        mainPin.is_pinned = true;
-      } else {
-        allCodes.unshift({
-          code: PIN,
-          is_pinned: true,
-          created_at: new Date().toISOString()
-        });
-      }
-
+      // حالة التمييز تُقرأ من قاعدة البيانات فقط
       page = 1;
       render();
 
@@ -289,7 +270,7 @@
         : s
     ))];
 
-    const validCodes = unique.filter(valid).filter(c => c !== PIN);
+    const validCodes = unique.filter(valid);
     const invalid = unique.length - validCodes.length;
 
     if (!validCodes.length) {
@@ -446,18 +427,9 @@
     }
   }
 
-  // تغيير حالة التمييز
+  // تغيير حالة التمييز لأي مفتاح، بما فيه المفتاح الأساسي
   async function togglePinned(c) {
-    if (!adminUser || !db) return;
-
-    if (!c.id) {
-      // المفتاح الافتراضي غير الموجود في قاعدة البيانات
-      if (c.code === PIN) {
-        toast('المفتاح الأساسي يظل مميزاً.');
-        return;
-      }
-      return;
-    }
+    if (!adminUser || !db || !c.id) return;
 
     const nextValue = !c.is_pinned;
 
@@ -482,11 +454,6 @@
   // حذف مفتاح
   async function deleteCode(c) {
     if (!adminUser || !db || !c.id) return;
-
-    if (c.code === PIN) {
-      toast('لا يمكن حذف المفتاح الأساسي.');
-      return;
-    }
 
     if (!confirm('هل تريد حذف هذا المفتاح نهائياً من قائمة الجميع؟')) return;
 
@@ -537,11 +504,9 @@
       const pinnedCodes = pinnedResult.data || [];
       const normalCodes = normalResult.data || [];
 
-      const codes = [...pinnedCodes, ...normalCodes];
-
       container.innerHTML = '';
 
-      if (!codes.length) {
+      if (!pinnedCodes.length && !normalCodes.length) {
         container.innerHTML = '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
         return;
       }
@@ -730,4 +695,3 @@
     start();
   }
 })();
-
