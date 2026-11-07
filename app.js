@@ -10,10 +10,17 @@
 
   let db = null;
   let allCodes = [];
-  let page = 1;
+  let normalOffset = 0;
+  let hasMore = false;
+  let loadingMore = false;
+  let loadToken = 0;
+  let totalCodesCount = 0;
+  let todayCodesCount = 0;
+  let searchTimer = null;
+
   const pageSize = 30;
   const batchSize = 1000;
-  const maxCodes = 100000;
+
   let adminUser = null;
   let hidden = new Set();
 
@@ -48,22 +55,29 @@
   }
 
   function updateStats() {
-    const visible = allCodes.filter(c => c.is_pinned || !hidden.has(c.code));
+    const visible = allCodes.filter(c =>
+      c.is_pinned || !hidden.has(c.code)
+    );
 
-    if ($('totalCount'))
-      $('totalCount').textContent = allCodes.length.toLocaleString('en-US');
+    if ($('totalCount')) {
+      $('totalCount').textContent =
+        totalCodesCount.toLocaleString('en-US');
+    }
 
-    if ($('todayCount'))
-      $('todayCount').textContent = allCodes.filter(c =>
-        c.created_at &&
-        new Date(c.created_at).toDateString() === new Date().toDateString()
-      ).length.toLocaleString('en-US');
+    if ($('todayCount')) {
+      $('todayCount').textContent =
+        todayCodesCount.toLocaleString('en-US');
+    }
 
-    if ($('usedCount'))
-      $('usedCount').textContent = hidden.size.toLocaleString('en-US');
+    if ($('usedCount')) {
+      $('usedCount').textContent =
+        hidden.size.toLocaleString('en-US');
+    }
 
-    if ($('shownCount'))
-      $('shownCount').textContent = visible.length.toLocaleString('en-US');
+    if ($('shownCount')) {
+      $('shownCount').textContent =
+        visible.length.toLocaleString('en-US');
+    }
   }
 
   function setTab(tab) {
@@ -162,42 +176,81 @@
       c.code.toLowerCase().includes(q)
     );
 
-    const sort = $('sortSelect') ? $('sortSelect').value : 'new';
+    const sort = $('sortSelect')
+      ? $('sortSelect').value
+      : 'new';
 
-    if (sort === 'old') arr.reverse();
-    if (sort === 'random') arr.sort(() => Math.random() - 0.5);
+    if (sort === 'random') {
+      arr.sort(() => Math.random() - 0.5);
+    }
 
     matchingPinned.forEach(c => pin.append(card(c)));
 
-    const slice = arr.slice(0, page * pageSize);
-
-    if (!slice.length && !pin.children.length) {
-      list.innerHTML = '<div class="empty">لا توجد مفاتيح ظاهرة.</div>';
+    if (!arr.length && !pin.children.length) {
+      list.innerHTML =
+        '<div class="empty">لا توجد مفاتيح ظاهرة.</div>';
     } else {
-      slice.forEach(c => list.append(card(c)));
+      arr.forEach(c => list.append(card(c)));
     }
 
     if ($('loadMore')) {
-      $('loadMore').hidden = slice.length >= arr.length;
-      $('loadMore').textContent = 'عرض المزيد';
+      $('loadMore').hidden = !hasMore;
+      $('loadMore').disabled = loadingMore;
+      $('loadMore').textContent =
+        loadingMore ? 'جارٍ التحميل...' : 'عرض المزيد';
     }
 
     updateStats();
   }
 
-  // تحميل المفاتيح على دفعات حتى 100 ألف
+  // جلب جميع المفاتيح المميزة على دفعات
+  async function fetchAllPinned(q, token) {
+    const result = [];
+    let offset = 0;
+
+    while (true) {
+      let query = db.from('nusuk_codes')
+        .select('id,code,is_pinned,created_at')
+        .eq('is_pinned', true)
+        .order('created_at', { ascending: false })
+        .order('id', { ascending: true })
+        .range(offset, offset + batchSize - 1);
+
+      if (q) {
+        query = query.ilike('code', `%${q}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+      if (token !== loadToken) return [];
+
+      const batch = data || [];
+      result.push(...batch);
+      offset += batch.length;
+
+      if (batch.length < batchSize) break;
+    }
+
+    return result;
+  }
+
+  // تحميل المفاتيح المميزة وأول 30 مفتاحًا عاديًا
   async function load() {
     if (!db) {
       allCodes = [];
-
-      if ($('codesList')) {
-        $('codesList').innerHTML =
-          '<div class="empty">تعذر الاتصال بقاعدة البيانات. راجع إعدادات Supabase.</div>';
-      }
-
+      totalCodesCount = 0;
+      todayCodesCount = 0;
       render();
       return;
     }
+
+    const token = ++loadToken;
+
+    normalOffset = 0;
+    hasMore = false;
+    loadingMore = false;
+    allCodes = [];
 
     if ($('codesList')) {
       $('codesList').innerHTML =
@@ -205,41 +258,131 @@
     }
 
     try {
-      allCodes = [];
+      const q = $('searchInput')
+        ? $('searchInput').value.trim()
+        : '';
 
-      for (let from = 0; from < maxCodes; from += batchSize) {
-        const to = from + batchSize - 1;
+      const sort = $('sortSelect')
+        ? $('sortSelect').value
+        : 'new';
 
-        const { data, error } = await db
-          .from('nusuk_codes')
-          .select('id,code,is_pinned,created_at')
-          .order('created_at', { ascending: false })
-          .range(from, to);
+      let normalQuery = db.from('nusuk_codes')
+        .select('id,code,is_pinned,created_at')
+        .eq('is_pinned', false)
+        .order('created_at', { ascending: sort === 'old' })
+        .order('id', { ascending: sort === 'old' })
+        .range(0, pageSize - 1);
 
-        if (error) throw error;
-
-        const batch = data || [];
-        allCodes.push(...batch);
-
-        if ($('codesList')) {
-          $('codesList').innerHTML =
-            `<div class="loading">تم تحميل ${allCodes.length.toLocaleString('en-US')} مفتاح...</div>`;
-        }
-
-        if (batch.length < batchSize) break;
+      if (q) {
+        normalQuery = normalQuery.ilike('code', `%${q}%`);
       }
 
-      // حالة التمييز تُقرأ من قاعدة البيانات فقط
-      page = 1;
+      const now = new Date();
+      const startOfDay = new Date(now);
+      startOfDay.setHours(0, 0, 0, 0);
+
+      const startOfTomorrow = new Date(startOfDay);
+      startOfTomorrow.setDate(startOfTomorrow.getDate() + 1);
+
+      const [pinned, normal, total, today] = await Promise.all([
+        fetchAllPinned(q, token),
+
+        normalQuery,
+
+        db.from('nusuk_codes')
+          .select('id', { count: 'exact', head: true }),
+
+        db.from('nusuk_codes')
+          .select('id', { count: 'exact', head: true })
+          .gte('created_at', startOfDay.toISOString())
+          .lt('created_at', startOfTomorrow.toISOString())
+      ]);
+
+      if (token !== loadToken) return;
+
+      if (normal.error) throw normal.error;
+      if (total.error) throw total.error;
+      if (today.error) throw today.error;
+
+      const normalCodes = normal.data || [];
+
+      if (sort === 'random') {
+        normalCodes.sort(() => Math.random() - 0.5);
+      }
+
+      allCodes = [...pinned, ...normalCodes];
+
+      totalCodesCount = total.count || 0;
+      todayCodesCount = today.count || 0;
+
+      normalOffset = normalCodes.length;
+      hasMore = normalCodes.length === pageSize;
+
       render();
 
     } catch (error) {
+      if (token !== loadToken) return;
+
       console.error('Load error:', error);
 
       if ($('codesList')) {
         $('codesList').textContent =
           'تعذر تحميل المفاتيح: ' + error.message;
       }
+    }
+  }
+
+  // تحميل 30 مفتاحًا إضافيًا عند الضغط على عرض المزيد
+  async function loadMoreCodes() {
+    if (!db || !hasMore || loadingMore) return;
+
+    loadingMore = true;
+    render();
+
+    try {
+      const q = $('searchInput')
+        ? $('searchInput').value.trim()
+        : '';
+
+      const sort = $('sortSelect')
+        ? $('sortSelect').value
+        : 'new';
+
+      let query = db.from('nusuk_codes')
+        .select('id,code,is_pinned,created_at')
+        .eq('is_pinned', false)
+        .order('created_at', { ascending: sort === 'old' })
+        .order('id', { ascending: sort === 'old' })
+        .range(normalOffset, normalOffset + pageSize - 1);
+
+      if (q) {
+        query = query.ilike('code', `%${q}%`);
+      }
+
+      const { data, error } = await query;
+
+      if (error) throw error;
+
+      const batch = data || [];
+
+      if (sort === 'random') {
+        batch.sort(() => Math.random() - 0.5);
+      }
+
+      allCodes.push(...batch);
+
+      normalOffset += batch.length;
+      hasMore = batch.length === pageSize;
+
+      render();
+
+    } catch (error) {
+      console.error('Load more error:', error);
+      toast('تعذر تحميل المزيد: ' + error.message);
+
+    } finally {
+      loadingMore = false;
+      render();
     }
   }
 
@@ -353,6 +496,7 @@
 
   function adminMessage(text, type = 'error') {
     const el = $('pinnedResult');
+
     if (!el) {
       toast(text);
       return;
@@ -365,6 +509,7 @@
   // إضافة مفتاح مميز أو تحويل مفتاح موجود إلى مميز
   async function addPinnedCode() {
     const input = $('pinnedCodeInput');
+
     if (!input || !db || !adminUser) {
       adminMessage('سجّل دخولك إلى لوحة الإدارة أولاً.');
       return;
@@ -427,7 +572,7 @@
     }
   }
 
-  // تغيير حالة التمييز لأي مفتاح، بما فيه المفتاح الأساسي
+  // تغيير حالة التمييز لأي مفتاح
   async function togglePinned(c) {
     if (!adminUser || !db || !c.id) return;
 
@@ -442,6 +587,7 @@
       if (error) throw error;
 
       toast(nextValue ? 'تم تمييز المفتاح' : 'تم إلغاء تمييز المفتاح');
+
       await load();
       await adminLoad();
 
@@ -466,6 +612,7 @@
       if (error) throw error;
 
       toast('تم حذف المفتاح');
+
       await load();
       await adminLoad();
 
@@ -482,7 +629,8 @@
     const container = $('adminCodes');
     if (!container) return;
 
-    container.innerHTML = '<div class="loading">جارٍ تحميل مفاتيح الإدارة...</div>';
+    container.innerHTML =
+      '<div class="loading">جارٍ تحميل مفاتيح الإدارة...</div>';
 
     try {
       const [pinnedResult, normalResult] = await Promise.all([
@@ -507,25 +655,30 @@
       container.innerHTML = '';
 
       if (!pinnedCodes.length && !normalCodes.length) {
-        container.innerHTML = '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
+        container.innerHTML =
+          '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
         return;
       }
 
       const heading1 = document.createElement('h3');
-      heading1.textContent = 'المفاتيح المميزة (' + pinnedCodes.length + ')';
+      heading1.textContent =
+        'المفاتيح المميزة (' + pinnedCodes.length + ')';
+
       container.append(heading1);
 
       pinnedCodes.forEach(c => addAdminRow(container, c));
 
       const heading2 = document.createElement('h3');
       heading2.textContent = 'المفاتيح العادية (أحدث 100)';
+
       container.append(heading2);
 
       normalCodes.forEach(c => addAdminRow(container, c));
 
     } catch (error) {
       console.error('Admin load error:', error);
-      container.textContent = 'تعذر تحميل المفاتيح: ' + error.message;
+      container.textContent =
+        'تعذر تحميل المفاتيح: ' + error.message;
     }
   }
 
@@ -575,26 +728,23 @@
 
     if ($('searchInput')) {
       $('searchInput').addEventListener('input', () => {
-        page = 1;
-        render();
+        clearTimeout(searchTimer);
+        loadToken++;
+        searchTimer = setTimeout(load, 350);
       });
     }
 
     if ($('sortSelect')) {
-      $('sortSelect').addEventListener('change', () => {
-        page = 1;
-        render();
-      });
+      $('sortSelect').addEventListener('change', load);
     }
 
     if ($('loadMore')) {
-      $('loadMore').onclick = () => {
-        page++;
-        render();
-      };
+      $('loadMore').onclick = loadMoreCodes;
     }
 
-    if ($('refreshBtn')) $('refreshBtn').onclick = load;
+    if ($('refreshBtn')) {
+      $('refreshBtn').onclick = load;
+    }
 
     if ($('clearHidden')) {
       $('clearHidden').onclick = () => {
@@ -623,7 +773,8 @@
     if ($('loginBtn')) {
       $('loginBtn').onclick = async () => {
         if (!db) {
-          $('loginResult').textContent = 'تعذر الاتصال بقاعدة البيانات.';
+          $('loginResult').textContent =
+            'تعذر الاتصال بقاعدة البيانات.';
           return;
         }
 
@@ -650,6 +801,7 @@
         if (adminError || !row) {
           await db.auth.signOut();
           adminUser = null;
+
           $('loginResult').className = 'result error';
           $('loginResult').textContent =
             'هذا الحساب ليس لديه صلاحية إدارة.';
@@ -658,6 +810,7 @@
 
         $('adminLogin').hidden = true;
         $('adminTools').hidden = false;
+
         adminLoad();
       };
     }
@@ -675,12 +828,16 @@
       });
     }
 
-    if ($('adminRefresh')) $('adminRefresh').onclick = adminLoad;
+    if ($('adminRefresh')) {
+      $('adminRefresh').onclick = adminLoad;
+    }
 
     if ($('logoutBtn')) {
       $('logoutBtn').onclick = async () => {
         if (db) await db.auth.signOut();
+
         adminUser = null;
+
         $('adminTools').hidden = true;
         $('adminLogin').hidden = false;
       };
