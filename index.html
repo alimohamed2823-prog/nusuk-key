@@ -7,11 +7,11 @@
 <meta name="theme-color" content="#102747">
 <meta name="description" content="Nusuk Key | مفتاح نسك - مجتمع مشاركة مفاتيح تحدي نسك">
 <title>Nusuk Key | مفتاح نسك</title>
+
 <link rel="preconnect" href="https://fonts.googleapis.com">
 <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
 <link href="https://fonts.googleapis.com/css2?family=Cairo:wght@400;500;600;700;800&display=swap" rel="stylesheet">
 <link rel="stylesheet" href="style.css">
-<script src="https://cdn.jsdelivr.net/npm/@supabase/supabase-js@2"></script>
 
 <style>
 .prayer-card {
@@ -87,14 +87,13 @@
 </div>
 </section>
 
-<!-- رسالة صاحب المبادرة -->
 <section class="prayer-card">
 <h2>رسالة من صاحب المبادرة</h2>
 <p><strong>أخوكم في الله علي أبوعميره</strong></p>
 <p>هذا الموقع مبادرة تطوعية، أسأل الله أن يجعلها خالصة لوجهه الكريم، وأن ينفع بها الجميع ويكتب لنا ولكم الأجر.</p>
 <p>لا تنسوني من صالح دعائكم، وادعوا لأبي وأمي بالبركة في العمر والصحة والعافية، وأن يكتب الله لي ولأهلي زيارة بيته الحرام كل عام.</p>
 <p><strong>ولعل دعوة صادقة من أحدكم تكون سببًا في تفريج كرب أو استجابة دعاء.</strong></p>
-<p class="signature">جزاكم الله خيرًا، ولا حرمكم الأجر.</p>
+<p class="signature">صاحب المبادرة | أخوكم في الله علي أبوعميره</p>
 </section>
 
 <section class="tabs">
@@ -107,24 +106,27 @@
 <div><h2>المفاتيح المشتركة</h2><p>افتح الرابط في نسك أو انسخ المفتاح يدويًا</p></div>
 <button class="soft-btn" id="clearHidden">إظهار المخفي</button>
 </div>
+
 <div class="toolbar">
 <input id="searchInput" type="search" placeholder="ابحث عن مفتاح...">
 <select id="sortSelect">
-<option value="new">الأحدث</option>
-<option value="old">الأقدم</option>
+<option value="newest">الأحدث</option>
+<option value="oldest">الأقدم</option>
 <option value="random">عشوائي</option>
 </select>
 </div>
+
 <div id="pinnedSlot"></div>
 <div id="codesList" class="codes-list"><div class="loading">جارٍ تحميل المفاتيح...</div></div>
-<button id="loadMore" class="more-btn" hidden>عرض المزيد</button>
+<button id="loadMore" class="more-btn" style="display:none">عرض المزيد</button>
 <div class="notice">المفاتيح التي تفتحها أو تنسخها تختفي من قائمتك أنت فقط. تظل متاحة لباقي الزوار.</div>
 </section>
 
-<section id="sharePanel" class="panel" hidden>
+<section id="sharePanel" class="panel" style="display:none">
 <div class="section-head">
 <div><h2>شارك مفاتيحك</h2><p>الصق حتى 1000 مفتاح في المرة الواحدة، كل مفتاح في سطر أو افصل بينها بمسافة أو فاصلة.</p></div>
 </div>
+
 <textarea id="bulkCodes" rows="10" placeholder="NG-Abc12345&#10;NG-Xyz67890&#10;NG-........"></textarea>
 <div class="input-hint">المفتاح الصحيح يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.</div>
 <button id="submitCodes" class="primary-btn">＋ مشاركة المفاتيح</button>
@@ -132,18 +134,20 @@
 <div class="privacy-note">بإرسال المفاتيح، أنت توافق على مشاركتها علنًا مع زوار الموقع. لا تضف أي بيانات شخصية.</div>
 </section>
 
-<section id="adminPanel" class="panel admin-panel" hidden>
+<section id="adminPanel" class="panel admin-panel" style="display:none">
 <div class="section-head">
 <div><h2>إدارة الموقع</h2><p>إدارة المفاتيح المضافة حديثًا والمميزة</p></div>
 <button class="soft-btn" id="logoutBtn">تسجيل الخروج</button>
 </div>
+
 <div id="adminLogin">
 <input id="adminEmail" type="email" placeholder="البريد الإلكتروني">
 <input id="adminPassword" type="password" placeholder="كلمة المرور">
 <button id="loginBtn" class="primary-btn">دخول الإدارة</button>
 <div id="loginResult" class="result"></div>
 </div>
-<div id="adminTools" hidden>
+
+<div id="adminTools" style="display:none">
 <div class="admin-row">
 <span id="adminStatus">مسجل كمدير</span>
 <button id="adminRefresh" class="soft-btn">تحديث</button>
@@ -166,7 +170,7 @@
 </main>
 
 <div id="toast" class="toast" role="status"></div>
-<script src="config.js"></script>
+
 <script src="app.js"></script>
 </body>
 </html>
