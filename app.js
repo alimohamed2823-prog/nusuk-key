@@ -1,3 +1,4 @@
+
 (() => {
   'use strict';
 
@@ -13,28 +14,32 @@
   let total = 0;
   let today = 0;
   let offset = 0;
-  let limit = 50;
+  const limit = 30;
   let loading = false;
   let hasMore = true;
   let searchTimer = null;
   let adminToken = sessionStorage.getItem(tokenKey) || '';
 
-  const hiddenCodes = new Set(
-    JSON.parse(localStorage.getItem(hiddenKey) || '[]')
-  );
+  let hiddenCodes = new Set();
+
+  try {
+    const saved = JSON.parse(localStorage.getItem(hiddenKey) || '[]');
+    if (Array.isArray(saved)) hiddenCodes = new Set(saved);
+  } catch (_) {
+    hiddenCodes = new Set();
+  }
 
   function toast(message) {
     const el = $('toast');
     if (!el) return;
+
     el.textContent = message;
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 2500);
   }
 
   async function api(path, options = {}) {
-    const headers = {
-      ...(options.headers || {})
-    };
+    const headers = { ...(options.headers || {}) };
 
     if (options.body) {
       headers['Content-Type'] = 'application/json';
@@ -50,6 +55,7 @@
     });
 
     let data = {};
+
     try {
       data = await response.json();
     } catch (_) {}
@@ -76,26 +82,58 @@
   }
 
   function updateStats() {
-    const visible = codes.filter(code => !hiddenCodes.has(code.code));
+    const visible =
+      pinned.length +
+      codes.filter(item => !hiddenCodes.has(item.code)).length;
 
-    if ($('totalCount')) $('totalCount').textContent = total.toLocaleString('en-US');
-    if ($('todayCount')) $('todayCount').textContent = today.toLocaleString('en-US');
-    if ($('usedCount')) $('usedCount').textContent = hiddenCodes.size.toLocaleString('en-US');
-    if ($('shownCount')) $('shownCount').textContent = visible.length.toLocaleString('en-US');
+    if ($('totalCount')) {
+      $('totalCount').textContent = total.toLocaleString('en-US');
+    }
+
+    if ($('todayCount')) {
+      $('todayCount').textContent = today.toLocaleString('en-US');
+    }
+
+    if ($('usedCount')) {
+      $('usedCount').textContent = hiddenCodes.size.toLocaleString('en-US');
+    }
+
+    if ($('shownCount')) {
+      $('shownCount').textContent = visible.toLocaleString('en-US');
+    }
   }
 
+  // بطاقة المفتاح بنفس تنسيقات التصميم الأصلي
   function codeCard(item, isPinned = false) {
     const code = escapeHTML(item.code);
 
     return `
-      <div class="code-card ${isPinned ? 'pinned' : ''}">
-        <div class="code-value">${code}</div>
-        <div class="code-actions">
-          <button type="button" class="open-code" data-code="${code}">فتح نسك</button>
-          <button type="button" class="copy-code" data-code="${code}">نسخ</button>
-          <button type="button" class="hide-code" data-code="${code}">إخفاء</button>
+      <article class="code-card ${isPinned ? 'pinned' : ''}">
+        <div class="code-top">
+          <span class="code-label">
+            ${isPinned ? 'مفتاح مثبت' : 'مفتاح مشاركة'}
+          </span>
+          ${isPinned ? '<span class="pin-badge">مميز</span>' : ''}
         </div>
-      </div>
+
+        <div class="code-value">${code}</div>
+
+        <div class="actions">
+          <button
+            type="button"
+            class="open-btn open-code"
+            data-code="${code}">
+            ↗ فتح في نسك
+          </button>
+
+          <button
+            type="button"
+            class="copy-btn copy-code"
+            data-code="${code}">
+            ▢ نسخ
+          </button>
+        </div>
+      </article>
     `;
   }
 
@@ -105,25 +143,34 @@
 
     if (pinnedSlot) {
       pinnedSlot.innerHTML = pinned
-        .filter(item => !hiddenCodes.has(item.code))
         .map(item => codeCard(item, true))
         .join('');
     }
 
     if (codesList) {
-      const visible = codes.filter(item => !hiddenCodes.has(item.code));
-      codesList.innerHTML = visible.map(item => codeCard(item)).join('');
+      const visible = codes.filter(
+        item => !hiddenCodes.has(item.code)
+      );
+
+      codesList.innerHTML = visible.length
+        ? visible.map(item => codeCard(item)).join('')
+        : '<div class="empty">لا توجد مفاتيح ظاهرة.</div>';
     }
 
     updateStats();
 
     if ($('loadMore')) {
       $('loadMore').style.display = hasMore ? '' : 'none';
+      $('loadMore').disabled = loading;
+      $('loadMore').textContent = loading
+        ? 'جارٍ التحميل...'
+        : 'عرض المزيد';
     }
   }
 
   async function loadCodes(reset = false) {
     if (loading) return;
+
     loading = true;
 
     if (reset) {
@@ -134,6 +181,11 @@
 
     const search = $('searchInput')?.value?.trim() || '';
     const sort = $('sortSelect')?.value || 'newest';
+
+    if (reset && $('codesList')) {
+      $('codesList').innerHTML =
+        '<div class="loading">جارٍ تحميل المفاتيح...</div>';
+    }
 
     try {
       const params = new URLSearchParams({
@@ -146,6 +198,7 @@
       const data = await api('/api/codes?' + params.toString());
 
       pinned = data.pinned || [];
+
       const received = data.codes || [];
 
       if (reset) {
@@ -156,14 +209,27 @@
 
       total = Number(data.total || 0);
       today = Number(data.today || 0);
+
       offset += received.length;
       hasMore = received.length === limit;
 
       render();
+
     } catch (error) {
       toast('تعذر تحميل الأكواد: ' + error.message);
+
+      if (reset && $('codesList')) {
+        $('codesList').innerHTML =
+          '<div class="empty">تعذر تحميل المفاتيح. حاول التحديث.</div>';
+      }
+
     } finally {
       loading = false;
+
+      if ($('loadMore')) {
+        $('loadMore').disabled = false;
+        $('loadMore').textContent = 'عرض المزيد';
+      }
     }
   }
 
@@ -177,10 +243,11 @@
       return;
     }
 
-    const codesToShare = raw
-      .split(/[\s,،;]+/)
-      .map(value => value.trim())
-      .filter(Boolean);
+    const codesToShare = [...new Set(
+      raw.split(/[\s,،;]+/)
+        .map(value => value.trim())
+        .filter(Boolean)
+    )];
 
     if (!codesToShare.length) return;
 
@@ -198,9 +265,13 @@
       }
 
       if (input) input.value = '';
+
       await loadCodes(true);
+
     } catch (error) {
-      if (result) result.textContent = 'حدث خطأ: ' + error.message;
+      if (result) {
+        result.textContent = 'حدث خطأ: ' + error.message;
+      }
     }
   }
 
@@ -210,7 +281,9 @@
     const result = $('loginResult');
 
     if (!email || !password) {
-      if (result) result.textContent = 'أدخل البريد الإلكتروني وكلمة المرور';
+      if (result) {
+        result.textContent = 'أدخل البريد الإلكتروني وكلمة المرور';
+      }
       return;
     }
 
@@ -222,15 +295,28 @@
         body: JSON.stringify({ email, password })
       });
 
+      if (!data.token) {
+        throw new Error('لم يتم استلام رمز الدخول من الخادم');
+      }
+
       adminToken = data.token;
       sessionStorage.setItem(tokenKey, adminToken);
 
-      if (result) result.textContent = 'تم تسجيل الدخول بنجاح';
-
       showAdminTools(true);
+
+      if (result) {
+        result.textContent = 'تم تسجيل الدخول بنجاح';
+      }
+
       await loadAdminCodes();
+
     } catch (error) {
-      if (result) result.textContent = 'فشل تسجيل الدخول: ' + error.message;
+      adminToken = '';
+      sessionStorage.removeItem(tokenKey);
+
+      if (result) {
+        result.textContent = 'فشل تسجيل الدخول: ' + error.message;
+      }
     }
   }
 
@@ -251,24 +337,35 @@
 
       const items = data.codes || [];
 
+      if (!items.length) {
+        list.innerHTML =
+          '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
+        return;
+      }
+
       list.innerHTML = items.map(item => `
-        <div class="admin-code-row">
+        <div class="admin-code">
           <span>${escapeHTML(item.code)}</span>
+
           <div>
-            <button type="button"
-              class="toggle-pin"
+            <button
+              type="button"
+              class="primary-btn toggle-pin"
               data-id="${escapeHTML(item.id)}"
               data-pinned="${item.is_pinned ? '1' : '0'}">
               ${item.is_pinned ? 'إلغاء التثبيت' : 'تثبيت'}
             </button>
-            <button type="button"
-              class="delete-code"
+
+            <button
+              type="button"
+              class="delete-btn delete-code"
               data-id="${escapeHTML(item.id)}">
               حذف
             </button>
           </div>
         </div>
       `).join('');
+
     } catch (error) {
       toast('تعذر تحميل لوحة الإدارة: ' + error.message);
     }
@@ -291,12 +388,16 @@
       });
 
       if (result) result.textContent = data.message || 'تمت العملية';
+
       if (input) input.value = '';
 
       await loadAdminCodes();
       await loadCodes(true);
+
     } catch (error) {
-      if (result) result.textContent = 'حدث خطأ: ' + error.message;
+      if (result) {
+        result.textContent = 'حدث خطأ: ' + error.message;
+      }
     }
   }
 
@@ -309,7 +410,9 @@
 
       await loadAdminCodes();
       await loadCodes(true);
+
       toast('تم تحديث التثبيت');
+
     } catch (error) {
       toast('تعذر تحديث التثبيت: ' + error.message);
     }
@@ -325,7 +428,9 @@
 
       await loadAdminCodes();
       await loadCodes(true);
+
       toast('تم الحذف');
+
     } catch (error) {
       toast('تعذر الحذف: ' + error.message);
     }
@@ -334,6 +439,7 @@
   function logoutAdmin() {
     adminToken = '';
     sessionStorage.removeItem(tokenKey);
+
     showAdminTools(false);
 
     if ($('adminPassword')) $('adminPassword').value = '';
@@ -352,7 +458,10 @@
         });
 
         document.querySelectorAll('.panel').forEach(panel => {
-          panel.style.display = panel.id === target + 'Panel' ? '' : 'none';
+          if (panel.id === 'adminPanel') return;
+
+          panel.style.display =
+            panel.id === target + 'Panel' ? '' : 'none';
         });
       });
     });
@@ -369,16 +478,20 @@
 
     $('adminToggle')?.addEventListener('click', () => {
       const panel = $('adminPanel');
+
       if (panel) {
-        panel.style.display = panel.style.display === 'none' ? '' : 'none';
+        panel.style.display =
+          panel.style.display === 'none' ? '' : 'none';
       }
     });
 
     $('clearHidden')?.addEventListener('click', () => {
       if (!confirm('هل تريد إظهار الأكواد المخفية مرة أخرى؟')) return;
+
       hiddenCodes.clear();
       saveHidden();
       render();
+
       toast('تم إظهار الأكواد المخفية');
     });
 
@@ -390,31 +503,48 @@
     $('sortSelect')?.addEventListener('change', () => loadCodes(true));
 
     document.addEventListener('click', async event => {
-      const openButton = event.target.closest('.open-code');
-      const copyButton = event.target.closest('.copy-code');
-      const hideButton = event.target.closest('.hide-code');
-      const pinButton = event.target.closest('.toggle-pin');
-      const deleteButton = event.target.closest('.delete-code');
+      const target = event.target;
 
+      if (!target || typeof target.closest !== 'function') return;
+
+      const openButton = target.closest('.open-code');
+      const copyButton = target.closest('.copy-code');
+      const pinButton = target.closest('.toggle-pin');
+      const deleteButton = target.closest('.delete-code');
+
+      // فتح المفتاح: إخفاؤه من قائمة المستخدم فقط
       if (openButton) {
         const code = openButton.dataset.code;
-        window.open(LINK + encodeURIComponent(code), '_blank');
-      }
 
-      if (copyButton) {
-        try {
-          await navigator.clipboard.writeText(copyButton.dataset.code);
-          toast('تم نسخ الكود');
-        } catch (_) {
-          toast('تعذر النسخ');
-        }
-      }
-
-      if (hideButton) {
-        hiddenCodes.add(hideButton.dataset.code);
+        hiddenCodes.add(code);
         saveHidden();
         render();
-        toast('تم إخفاء الكود');
+
+        window.open(
+          LINK + encodeURIComponent(code),
+          '_blank',
+          'noopener'
+        );
+
+        return;
+      }
+
+      // نسخ المفتاح: إخفاؤه من قائمة المستخدم فقط
+      if (copyButton) {
+        const code = copyButton.dataset.code;
+
+        try {
+          await navigator.clipboard.writeText(code);
+          toast('تم نسخ المفتاح');
+        } catch (_) {
+          toast('انسخ المفتاح يدويًا: ' + code);
+        }
+
+        hiddenCodes.add(code);
+        saveHidden();
+        render();
+
+        return;
       }
 
       if (pinButton) {
@@ -422,6 +552,7 @@
           pinButton.dataset.id,
           pinButton.dataset.pinned === '1'
         );
+        return;
       }
 
       if (deleteButton) {
@@ -434,11 +565,7 @@
     setupTabs();
     setupEvents();
 
-    if (adminToken) {
-      showAdminTools(true);
-    } else {
-      showAdminTools(false);
-    }
+    showAdminTools(Boolean(adminToken));
 
     loadCodes(true);
 
