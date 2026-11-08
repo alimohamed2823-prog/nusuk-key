@@ -4,7 +4,7 @@
   const $ = id => document.getElementById(id);
 
   // عنوان Worker الصحيح المتصل بقاعدة Turso
-  const API = 'https://nusuk-key-turso-api.ali-mohamed2823-prog.workers.dev/api';
+  const API = 'https://nusuk-key-turso-api.ali-mohamed2823.workers.dev/api';
 
   const NUSUK_LINK = 'https://services.nusuk.sa/app?p=27&id=';
   const HIDDEN_KEY = 'nusuk_keys_hidden_v1';
