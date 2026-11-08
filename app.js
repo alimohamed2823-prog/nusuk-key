@@ -3,8 +3,8 @@
 
   const $ = id => document.getElementById(id);
 
-  // عنوان Worker الصحيح المتصل بقاعدة Turso
-  const API = 'https://nusuk-key-turso-api.ali-mohamed2823.workers.dev/api';
+  // عنوان Worker الصحيح بدون /api
+  const API = 'https://nusuk-key-turso-api.ali-mohamed2823.workers.dev';
 
   const NUSUK_LINK = 'https://services.nusuk.sa/app?p=27&id=';
   const HIDDEN_KEY = 'nusuk_keys_hidden_v1';
@@ -246,7 +246,6 @@
 
       if (query) params.set('search', query);
 
-      // تحميل الأكواد والإحصائيات من مسارين منفصلين
       const [data, stats] = await Promise.all([
         api('/codes?' + params.toString()),
         api('/stats').catch(error => {
@@ -373,14 +372,23 @@
         );
 
         try {
-          const result = await api('/share', {
+          // المسار الصحيح لمشاركة المفاتيح هو POST /codes
+          const result = await api('/codes', {
             method: 'POST',
             body: JSON.stringify({ codes: batch })
           });
 
-          added += Number(result.added || 0);
-          duplicates += Number(result.duplicates || 0);
-          failed += Number(result.failed || 0);
+          const inserted = Number(result.inserted || 0);
+          const received = Number(result.received ?? batch.length);
+
+          added += inserted;
+          duplicates += Math.max(0, received - inserted);
+          failed += Math.max(0, batch.length - received);
+
+          if (result.success === false) {
+            failed += batch.length;
+            errors.push(result.error || 'رفض الخادم استقبال الدفعة');
+          }
 
         } catch (error) {
           failed += batch.length;
