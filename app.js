@@ -2,121 +2,104 @@
   'use strict';
 
   const $ = id => document.getElementById(id);
-
-  // عنوان Worker الصحيح بدون /api
-  const API = 'https://nusuk-key-turso-api.ali-mohamed2823.workers.dev';
-
-  const NUSUK_LINK = 'https://services.nusuk.sa/app?p=27&id=';
-  const HIDDEN_KEY = 'nusuk_keys_hidden_v1';
-  const PAGE_SIZE = 30;
+  const API = 'https://nusuk-key-api.ali-mohamed2823.workers.dev';
+  const LINK = 'https://services.nusuk.sa/app?p=27&id=';
+  const hiddenKey = 'nusuk_keys_hidden_v3'; // reset old hidden state once
+  const tokenKey = 'nusuk_admin_token_v1';
 
   let allCodes = [];
-  let totalCount = 0;
-  let todayCount = 0;
-  let offset = 0;
+  let normalOffset = 0;
   let hasMore = false;
   let loadingMore = false;
   let loadToken = 0;
-  let searchTimer;
-  let adminLoggedIn = false;
+  let totalCodesCount = 0;
+  let todayCodesCount = 0;
+  let searchTimer = null;
+  let adminToken = sessionStorage.getItem(tokenKey) || '';
   let hidden = new Set();
 
+  const pageSize = 30;
+  const valid = s => /^NG-[A-Za-z0-9]{8}$/.test(s);
+
   try {
-    hidden = new Set(JSON.parse(localStorage.getItem(HIDDEN_KEY) || '[]'));
+    hidden = new Set(JSON.parse(localStorage.getItem(hiddenKey) || '[]'));
   } catch {}
 
-  const validCode = code => /^NG-[A-Za-z0-9]{8}$/.test(code);
-
-  async function api(path, options = {}) {
-    const response = await fetch(API + path, {
-      ...options,
-      credentials: 'include',
-      headers: {
-        'Content-Type': 'application/json',
-        ...(options.headers || {})
-      }
-    });
-
-    const data = await response.json().catch(() => ({}));
-
-    if (!response.ok) {
-      throw new Error(data.error || data.message || `خطأ ${response.status}`);
+  async function api(path, options = {}, admin = false) {
+    const headers = { ...(options.headers || {}) };
+    if (options.body && !headers['Content-Type']) {
+      headers['Content-Type'] = 'application/json';
+    }
+    if (admin && adminToken) {
+      headers.Authorization = 'Bearer ' + adminToken;
     }
 
+    const response = await fetch(API + path, { ...options, headers });
+    let data = {};
+    try { data = await response.json(); } catch {}
+
+    if (!response.ok) {
+      const error = new Error(data.error || `HTTP ${response.status}`);
+      error.status = response.status;
+      throw error;
+    }
     return data;
   }
 
-  function toast(message) {
+  function message(text, type = 'error') {
+    const el = $('submitResult');
+    if (!el) return;
+    el.className = 'result ' + type;
+    el.textContent = text;
+  }
+
+  function toast(text) {
     const el = $('toast');
     if (!el) return;
-
-    el.textContent = message;
+    el.textContent = text;
     el.classList.add('show');
     setTimeout(() => el.classList.remove('show'), 2500);
   }
 
-  function showResult(id, message, type = 'error') {
-    const el = $(id);
-    if (!el) return;
-
-    el.className = 'result ' + type;
-    el.textContent = message;
-  }
-
   function saveHidden() {
-    try {
-      localStorage.setItem(HIDDEN_KEY, JSON.stringify([...hidden]));
-    } catch {}
+    localStorage.setItem(hiddenKey, JSON.stringify([...hidden]));
   }
 
-  function hideCode(code) {
+  function hide(code) {
     hidden.add(code);
     saveHidden();
   }
 
   function updateStats() {
     const visible = allCodes.filter(c => c.is_pinned || !hidden.has(c.code));
-
-    if ($('totalCount')) {
-      $('totalCount').textContent = totalCount.toLocaleString('en-US');
-    }
-
-    if ($('todayCount')) {
-      $('todayCount').textContent = todayCount.toLocaleString('en-US');
-    }
-
-    if ($('usedCount')) {
-      $('usedCount').textContent = hidden.size.toLocaleString('en-US');
-    }
-
-    if ($('shownCount')) {
-      $('shownCount').textContent = visible.length.toLocaleString('en-US');
-    }
+    if ($('totalCount')) $('totalCount').textContent = totalCodesCount.toLocaleString('en-US');
+    if ($('todayCount')) $('todayCount').textContent = todayCodesCount.toLocaleString('en-US');
+    if ($('usedCount')) $('usedCount').textContent = hidden.size.toLocaleString('en-US');
+    if ($('shownCount')) $('shownCount').textContent = visible.length.toLocaleString('en-US');
   }
 
   function setTab(tab) {
-    document.querySelectorAll('.tab').forEach(button => {
-      button.classList.toggle('active', button.dataset.tab === tab);
+    document.querySelectorAll('.tab').forEach(b => {
+      b.classList.toggle('active', b.dataset.tab === tab);
     });
-
     if ($('codesPanel')) $('codesPanel').hidden = tab !== 'codes';
     if ($('sharePanel')) $('sharePanel').hidden = tab !== 'share';
     if ($('adminPanel')) $('adminPanel').hidden = true;
   }
 
-  function createCard(item) {
-    const card = document.createElement('article');
-    card.className = 'code-card' + (item.is_pinned ? ' pinned' : '');
+  function card(c) {
+    const el = document.createElement('article');
+    el.className = 'code-card' + (c.is_pinned ? ' pinned' : '');
 
     const top = document.createElement('div');
     top.className = 'code-top';
 
     const label = document.createElement('span');
     label.className = 'code-label';
-    label.textContent = item.is_pinned ? 'مفتاح مثبت' : 'مفتاح مشاركة';
+    label.textContent = c.is_pinned ? 'مفتاح مثبت' : 'مفتاح مشاركة';
     top.append(label);
 
-    if (item.is_pinned) {
+    if (c.is_pinned) {
       const badge = document.createElement('span');
       badge.className = 'pin-badge';
       badge.textContent = 'مميز';
@@ -125,7 +108,8 @@
 
     const code = document.createElement('span');
     code.className = 'code-value';
-    code.textContent = item.code;
+    code.textContent = c.code;
+    el.append(top, code);
 
     const actions = document.createElement('div');
     actions.className = 'actions';
@@ -133,187 +117,114 @@
     const open = document.createElement('button');
     open.className = 'open-btn';
     open.textContent = '↗ فتح في نسك';
-
     open.onclick = () => {
-      hideCode(item.code);
+      hide(c.code);
       updateStats();
       render();
-      window.open(
-        NUSUK_LINK + encodeURIComponent(item.code),
-        '_blank',
-        'noopener'
-      );
+      window.open(LINK + encodeURIComponent(c.code), '_blank', 'noopener');
     };
 
     const copy = document.createElement('button');
     copy.className = 'copy-btn';
     copy.textContent = '▢ نسخ';
-
     copy.onclick = async () => {
       try {
-        await navigator.clipboard.writeText(item.code);
+        await navigator.clipboard.writeText(c.code);
+        hide(c.code);
+        el.remove(); // إخفاء البطاقة المنسوخة فقط دون إعادة رسم القائمة كلها
+        updateStats();
         toast('تم نسخ المفتاح');
       } catch {
-        toast('انسخ المفتاح يدويًا: ' + item.code);
+        toast('تعذر النسخ التلقائي. انسخ المفتاح يدويًا: ' + c.code);
       }
-
-      hideCode(item.code);
-      updateStats();
-      render();
     };
 
     actions.append(open, copy);
-    card.append(top, code, actions);
-
-    return card;
+    el.append(actions);
+    return el;
   }
 
   function render() {
     const list = $('codesList');
-    const pinnedSlot = $('pinnedSlot');
-
-    if (!list || !pinnedSlot) return;
+    const pin = $('pinnedSlot');
+    if (!list || !pin) return;
 
     list.innerHTML = '';
-    pinnedSlot.innerHTML = '';
+    pin.innerHTML = '';
 
-    const query = $('searchInput')
-      ? $('searchInput').value.trim().toLowerCase()
-      : '';
-
-    const pinned = allCodes.filter(item =>
-      item.is_pinned && item.code.toLowerCase().includes(query)
+    const q = $('searchInput') ? $('searchInput').value.trim().toLowerCase() : '';
+    const pinned = allCodes.filter(c => c.is_pinned && c.code.toLowerCase().includes(q));
+    const normal = allCodes.filter(c =>
+      !c.is_pinned && !hidden.has(c.code) && c.code.toLowerCase().includes(q)
     );
 
-    let normal = allCodes.filter(item =>
-      !item.is_pinned &&
-      !hidden.has(item.code) &&
-      item.code.toLowerCase().includes(query)
-    );
+    pinned.forEach(c => pin.append(card(c)));
 
-    const sort = $('sortSelect') ? $('sortSelect').value : 'new';
-
-    if (sort === 'random') {
-      normal = [...normal].sort(() => Math.random() - 0.5);
-    }
-
-    pinned.forEach(item => pinnedSlot.append(createCard(item)));
-
-    if (!normal.length && !pinned.length) {
+    if (!normal.length && !pin.children.length) {
       list.innerHTML = '<div class="empty">لا توجد مفاتيح ظاهرة.</div>';
     } else {
-      normal.forEach(item => list.append(createCard(item)));
+      normal.forEach(c => list.append(card(c)));
     }
 
     if ($('loadMore')) {
       $('loadMore').hidden = !hasMore;
       $('loadMore').disabled = loadingMore;
-      $('loadMore').textContent = loadingMore
-        ? 'جارٍ التحميل...'
-        : 'عرض المزيد';
+      $('loadMore').textContent = loadingMore ? 'جارٍ التحميل...' : 'عرض المزيد';
     }
-
     updateStats();
   }
 
   async function load() {
     const token = ++loadToken;
-
-    offset = 0;
+    normalOffset = 0;
     hasMore = false;
     loadingMore = false;
     allCodes = [];
 
-    if ($('codesList')) {
-      $('codesList').innerHTML =
-        '<div class="loading">جارٍ تحميل المفاتيح...</div>';
-    }
+    if ($('codesList')) $('codesList').innerHTML = '<div class="loading">جارٍ تحميل المفاتيح...</div>';
 
     try {
-      const query = $('searchInput')
-        ? $('searchInput').value.trim()
-        : '';
-
-      const sort = $('sortSelect')
-        ? $('sortSelect').value
-        : 'new';
-
-      const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: '0',
-        sort
-      });
-
-      if (query) params.set('search', query);
-
-      const [data, stats] = await Promise.all([
-        api('/codes?' + params.toString()),
-        api('/stats').catch(error => {
-          console.error('Stats error:', error);
-          return {};
-        })
-      ]);
+      const q = $('searchInput') ? $('searchInput').value.trim() : '';
+      const sort = $('sortSelect') ? $('sortSelect').value : 'new';
+      const params = new URLSearchParams({ search: q, sort, offset: '0', limit: String(pageSize) });
+      const data = await api('/api/codes?' + params.toString());
 
       if (token !== loadToken) return;
-
-      const pinned = Array.isArray(data.pinned) ? data.pinned : [];
-      const normal = Array.isArray(data.codes) ? data.codes : [];
-
+      const pinned = data.pinned || [];
+      const normal = data.codes || [];
       allCodes = [...pinned, ...normal];
-
-      offset = normal.length;
-      hasMore = Boolean(data.hasMore);
-
-      totalCount = Number(stats.total ?? data.total ?? 0);
-      todayCount = Number(stats.today ?? data.today ?? 0);
-
+      totalCodesCount = Number(data.total || 0);
+      todayCodesCount = Number(data.today || 0);
+      normalOffset = normal.length;
+      hasMore = normal.length === pageSize;
       render();
-
     } catch (error) {
       if (token !== loadToken) return;
-
       console.error('Load error:', error);
-
-      if ($('codesList')) {
-        $('codesList').textContent =
-          'تعذر تحميل المفاتيح: ' + error.message;
-      }
+      if ($('codesList')) $('codesList').textContent = 'تعذر تحميل المفاتيح: ' + error.message;
     }
   }
 
   async function loadMoreCodes() {
     if (!hasMore || loadingMore) return;
-
     loadingMore = true;
     render();
 
     try {
-      const query = $('searchInput')
-        ? $('searchInput').value.trim()
-        : '';
-
-      const sort = $('sortSelect')
-        ? $('sortSelect').value
-        : 'new';
-
+      const q = $('searchInput') ? $('searchInput').value.trim() : '';
+      const sort = $('sortSelect') ? $('sortSelect').value : 'new';
       const params = new URLSearchParams({
-        limit: String(PAGE_SIZE),
-        offset: String(offset),
-        sort
+        search: q, sort, offset: String(normalOffset), limit: String(pageSize)
       });
-
-      if (query) params.set('search', query);
-
-      const data = await api('/codes?' + params.toString());
-      const batch = Array.isArray(data.codes) ? data.codes : [];
-
+      const data = await api('/api/codes?' + params.toString());
+      const batch = data.codes || [];
       allCodes.push(...batch);
-      offset += batch.length;
-      hasMore = Boolean(data.hasMore);
-
+      normalOffset += batch.length;
+      hasMore = batch.length === pageSize;
+      render();
     } catch (error) {
+      console.error('Load more error:', error);
       toast('تعذر تحميل المزيد: ' + error.message);
-
     } finally {
       loadingMore = false;
       render();
@@ -321,357 +232,194 @@
   }
 
   async function shareCodes() {
-    const button = $('submitCodes');
+    const btn = $('submitCodes');
     const input = $('bulkCodes');
+    if (!btn || !input) return;
 
-    if (!button || !input) return;
+    const tokens = (input.value || '').split(/[\s,;]+/)
+      .map(s => s.trim()).filter(Boolean)
+      .map(s => {
+        const match = s.match(/NG-[A-Za-z0-9]{8}/i);
+        return match ? match[0] : s;
+      });
 
-    const tokens = (input.value || '')
-      .split(/[\s,;]+/)
-      .map(value => value.trim())
-      .filter(Boolean);
-
-    const normalized = tokens.map(value => {
-      const match = value.match(/NG-[A-Za-z0-9]{8}/i);
-      return match ? 'NG-' + match[0].slice(3) : value;
-    });
-
-    const unique = [...new Set(normalized.map(value =>
-      value.toUpperCase().startsWith('NG-')
-        ? 'NG-' + value.slice(3)
-        : value
+    const unique = [...new Set(tokens.map(s =>
+      s.toUpperCase().startsWith('NG-') ? 'NG-' + s.slice(3) : s
     ))];
+    const validCodes = unique.filter(valid);
+    const invalid = unique.length - validCodes.length;
 
-    const valid = unique.filter(validCode);
-    const invalid = unique.length - valid.length;
-
-    if (!valid.length) {
-      showResult(
-        'submitResult',
-        'لم نعثر على مفاتيح صحيحة. تأكد أن كل مفتاح يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.'
-      );
+    if (!validCodes.length) {
+      message('لم نعثر على مفاتيح صحيحة. تأكد أن كل مفتاح يتكون من NG- ثم 8 أحرف أو أرقام.');
       return;
     }
 
-    button.disabled = true;
-    button.textContent = 'جارٍ الإرسال...';
+    btn.disabled = true;
+    btn.textContent = 'جارٍ الإرسال...';
+    message('جارٍ إرسال المفاتيح إلى قاعدة البيانات...', 'success');
 
     try {
-      let added = 0;
-      let duplicates = 0;
-      let failed = 0;
-      const errors = [];
+      const result = await api('/api/share', {
+        method: 'POST',
+        body: JSON.stringify({ codes: validCodes })
+      });
 
-      for (let i = 0; i < valid.length; i += 100) {
-        const batch = valid.slice(i, i + 100);
-
-        showResult(
-          'submitResult',
-          `جارٍ إرسال الدفعة ${Math.floor(i / 100) + 1} من ${Math.ceil(valid.length / 100)}...`,
-          'success'
-        );
-
-        try {
-          // المسار الصحيح لمشاركة المفاتيح هو POST /codes
-          const result = await api('/codes', {
-            method: 'POST',
-            body: JSON.stringify({ codes: batch })
-          });
-
-          const inserted = Number(result.inserted || 0);
-          const received = Number(result.received ?? batch.length);
-
-          added += inserted;
-          duplicates += Math.max(0, received - inserted);
-          failed += Math.max(0, batch.length - received);
-
-          if (result.success === false) {
-            failed += batch.length;
-            errors.push(result.error || 'رفض الخادم استقبال الدفعة');
-          }
-
-        } catch (error) {
-          failed += batch.length;
-          errors.push(error.message);
-        }
-      }
-
-      showResult(
-        'submitResult',
-        'انتهى الإرسال.' +
-        '\nمفاتيح جديدة: ' + added +
-        '\nمكررة: ' + duplicates +
-        '\nغير صالحة: ' + invalid +
-        '\nفشل إرسالها: ' + failed +
-        (errors.length ? '\nالخطأ: ' + errors[0] : ''),
+      const failed = Number(result.failed || 0);
+      message(
+        `انتهى الإرسال.\nمفاتيح جديدة: ${result.added || 0}\nمكررة: ${result.duplicates || 0}\nغير صالحة: ${invalid + (result.invalid || 0)}\nمفاتيح فشل إرسالها: ${failed}`,
         failed ? 'error' : 'success'
       );
 
       if (!failed) input.value = '';
-
       await load();
-
     } catch (error) {
-      showResult('submitResult', 'حدث خطأ: ' + error.message);
-
+      console.error('Share error:', error);
+      message('تعذر إرسال المفاتيح: ' + error.message);
     } finally {
-      button.disabled = false;
-      button.textContent = '＋ مشاركة المفاتيح';
+      btn.disabled = false;
+      btn.textContent = '＋ مشاركة المفاتيح';
     }
   }
 
-  function showAdminState(loggedIn) {
-    adminLoggedIn = loggedIn;
-
-    if ($('adminLogin')) $('adminLogin').hidden = loggedIn;
-    if ($('adminTools')) $('adminTools').hidden = !loggedIn;
-
-    if ($('adminEmail')) $('adminEmail').hidden = true;
-
-    if ($('adminPassword')) {
-      $('adminPassword').placeholder = 'كلمة مرور الإدارة';
-    }
+  function adminMessage(text, type = 'error') {
+    const el = $('pinnedResult');
+    if (!el) { toast(text); return; }
+    el.className = 'result ' + type;
+    el.textContent = text;
   }
 
-  async function loginAdmin() {
-    const password = $('adminPassword')
-      ? $('adminPassword').value
-      : '';
+  function clearAdminSession() {
+    adminToken = '';
+    sessionStorage.removeItem(tokenKey);
+    if ($('adminTools')) $('adminTools').hidden = true;
+    if ($('adminLogin')) $('adminLogin').hidden = false;
+  }
 
-    if (!password) {
-      showResult('loginResult', 'اكتب كلمة مرور الإدارة.');
+  async function addPinnedCode() {
+    const input = $('pinnedCodeInput');
+    if (!input || !adminToken) {
+      adminMessage('سجّل دخولك إلى لوحة الإدارة أولاً.');
       return;
     }
 
-    const button = $('loginBtn');
+    const code = input.value.trim().toUpperCase();
+    if (!valid(code)) {
+      adminMessage('المفتاح غير صحيح. يجب أن يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.');
+      return;
+    }
 
-    if (button) button.disabled = true;
+    const btn = $('addPinnedBtn');
+    if (btn) btn.disabled = true;
 
     try {
-      await api('/admin/login', {
+      await api('/api/admin/pinned', {
         method: 'POST',
-        body: JSON.stringify({ password })
-      });
+        body: JSON.stringify({ code })
+      }, true);
 
-      if ($('adminPassword')) $('adminPassword').value = '';
-
-      showAdminState(true);
-
-      showResult(
-        'loginResult',
-        'تم تسجيل الدخول بنجاح.',
-        'success'
-      );
-
+      adminMessage('تمت إضافة المفتاح المميز أو تحديثه بنجاح.', 'success');
+      input.value = '';
+      await load();
       await adminLoad();
-
     } catch (error) {
-      showResult(
-        'loginResult',
-        'تعذر تسجيل الدخول: ' + error.message
-      );
-
+      adminMessage('تعذرت إضافة المفتاح: ' + error.message);
+      if (error.status === 401) clearAdminSession();
     } finally {
-      if (button) button.disabled = false;
+      if (btn) btn.disabled = false;
+    }
+  }
+
+  async function togglePinned(c) {
+    if (!adminToken || !c.id) return;
+    try {
+      await api('/api/admin/codes/' + encodeURIComponent(c.id) + '/pin', {
+        method: 'PATCH',
+        body: JSON.stringify({ is_pinned: !c.is_pinned })
+      }, true);
+      toast(c.is_pinned ? 'تم إلغاء تمييز المفتاح' : 'تم تمييز المفتاح');
+      await load();
+      await adminLoad();
+    } catch (error) {
+      toast('تعذر تغيير حالة المفتاح: ' + error.message);
+      if (error.status === 401) clearAdminSession();
+    }
+  }
+
+  async function deleteCode(c) {
+    if (!adminToken || !c.id) return;
+    if (!confirm('هل تريد حذف هذا المفتاح نهائياً من قائمة الجميع؟')) return;
+
+    try {
+      await api('/api/admin/codes/' + encodeURIComponent(c.id), {
+        method: 'DELETE'
+      }, true);
+      toast('تم حذف المفتاح');
+      await load();
+      await adminLoad();
+    } catch (error) {
+      toast('تعذر الحذف: ' + error.message);
+      if (error.status === 401) clearAdminSession();
     }
   }
 
   async function adminLoad() {
-    if (!adminLoggedIn) return;
-
+    if (!adminToken) return;
     const container = $('adminCodes');
     if (!container) return;
 
-    container.innerHTML =
-      '<div class="loading">جارٍ تحميل مفاتيح الإدارة...</div>';
+    container.innerHTML = '<div class="loading">جارٍ تحميل مفاتيح الإدارة...</div>';
 
     try {
-      const data = await api('/admin/codes');
-
-      const pinned = Array.isArray(data.pinned)
-        ? data.pinned
-        : [];
-
-      const normal = Array.isArray(data.normal)
-        ? data.normal
-        : (Array.isArray(data.codes) ? data.codes : []);
-
+      const data = await api('/api/admin/codes', {}, true);
+      const pinnedCodes = data.pinned || [];
+      const normalCodes = data.codes || [];
       container.innerHTML = '';
 
+      if (!pinnedCodes.length && !normalCodes.length) {
+        container.innerHTML = '<div class="empty">لا توجد مفاتيح لإدارتها.</div>';
+        return;
+      }
+
       const heading1 = document.createElement('h3');
-      heading1.textContent =
-        'المفاتيح المميزة (' + pinned.length + ')';
-
+      heading1.textContent = 'المفاتيح المميزة (' + pinnedCodes.length + ')';
       container.append(heading1);
-
-      pinned.forEach(item => addAdminRow(container, item));
+      pinnedCodes.forEach(c => addAdminRow(container, c));
 
       const heading2 = document.createElement('h3');
-      heading2.textContent =
-        'المفاتيح العادية (' + normal.length + ')';
-
+      heading2.textContent = 'المفاتيح العادية (أحدث 100)';
       container.append(heading2);
-
-      normal.forEach(item => addAdminRow(container, item));
-
+      normalCodes.forEach(c => addAdminRow(container, c));
     } catch (error) {
-      container.textContent =
-        'تعذر تحميل المفاتيح: ' + error.message;
-
-      if (/401|403|unauthorized|غير مصرح/i.test(error.message)) {
-        showAdminState(false);
-      }
+      console.error('Admin load error:', error);
+      container.textContent = 'تعذر تحميل المفاتيح: ' + error.message;
+      if (error.status === 401) clearAdminSession();
     }
   }
 
-  function addAdminRow(container, item) {
+  function addAdminRow(container, c) {
     const row = document.createElement('div');
     row.className = 'admin-code';
 
     const span = document.createElement('span');
-    span.textContent = item.code;
+    span.textContent = c.code;
 
     const toggle = document.createElement('button');
     toggle.className = 'primary-btn';
-    toggle.textContent = item.is_pinned
-      ? 'إلغاء التمييز'
-      : 'تمييز';
-
-    toggle.onclick = async () => {
-      try {
-        await api(
-          '/admin/codes/' +
-          encodeURIComponent(item.id) +
-          '/pinned',
-          {
-            method: 'PATCH',
-            body: JSON.stringify({
-              is_pinned: !item.is_pinned
-            })
-          }
-        );
-
-        toast(
-          item.is_pinned
-            ? 'تم إلغاء التمييز'
-            : 'تم تمييز المفتاح'
-        );
-
-        await load();
-        await adminLoad();
-
-      } catch (error) {
-        toast('تعذر تغيير حالة المفتاح: ' + error.message);
-      }
-    };
+    toggle.textContent = c.is_pinned ? 'إلغاء التمييز' : 'تمييز';
+    toggle.onclick = () => togglePinned(c);
 
     const del = document.createElement('button');
     del.className = 'delete-btn';
     del.textContent = 'حذف';
-
-    del.onclick = async () => {
-      if (!confirm('هل تريد حذف هذا المفتاح نهائيًا من قائمة الجميع؟')) {
-        return;
-      }
-
-      try {
-        await api(
-          '/admin/codes/' + encodeURIComponent(item.id),
-          { method: 'DELETE' }
-        );
-
-        toast('تم حذف المفتاح');
-
-        await load();
-        await adminLoad();
-
-      } catch (error) {
-        toast('تعذر الحذف: ' + error.message);
-      }
-    };
+    del.onclick = () => deleteCode(c);
 
     row.append(span, toggle, del);
     container.append(row);
   }
 
-  async function addPinnedCode() {
-    const input = $('pinnedCodeInput');
-
-    const code = input
-      ? input.value.trim().toUpperCase()
-      : '';
-
-    if (!validCode(code)) {
-      showResult(
-        'pinnedResult',
-        'المفتاح غير صحيح. يجب أن يبدأ بـ NG- ويتبعه 8 أحرف أو أرقام.'
-      );
-      return;
-    }
-
-    const button = $('addPinnedBtn');
-
-    if (button) button.disabled = true;
-
-    try {
-      await api('/admin/pinned', {
-        method: 'POST',
-        body: JSON.stringify({ code })
-      });
-
-      if (input) input.value = '';
-
-      showResult(
-        'pinnedResult',
-        'تمت إضافة/تثبيت المفتاح بنجاح.',
-        'success'
-      );
-
-      await load();
-      await adminLoad();
-
-    } catch (error) {
-      showResult(
-        'pinnedResult',
-        'تعذرت إضافة المفتاح: ' + error.message
-      );
-
-    } finally {
-      if (button) button.disabled = false;
-    }
-  }
-
-  async function logoutAdmin() {
-    try {
-      await api('/admin/logout', {
-        method: 'POST',
-        body: '{}'
-      });
-    } catch {}
-
-    showAdminState(false);
-
-    if ($('adminCodes')) {
-      $('adminCodes').innerHTML = '';
-    }
-
-    toast('تم تسجيل الخروج');
-  }
-
   function start() {
-    if ($('adminEmail')) {
-      $('adminEmail').hidden = true;
-      $('adminEmail').value = '';
-    }
-
-    if ($('adminPassword')) {
-      $('adminPassword').placeholder = 'كلمة مرور الإدارة';
-    }
-
-    document.querySelectorAll('.tab').forEach(button => {
-      button.addEventListener('click', () => {
-        setTab(button.dataset.tab);
-      });
+    document.querySelectorAll('.tab').forEach(b => {
+      b.addEventListener('click', () => setTab(b.dataset.tab));
     });
 
     if ($('searchInput')) {
@@ -681,18 +429,9 @@
         searchTimer = setTimeout(load, 350);
       });
     }
-
-    if ($('sortSelect')) {
-      $('sortSelect').addEventListener('change', load);
-    }
-
-    if ($('loadMore')) {
-      $('loadMore').onclick = loadMoreCodes;
-    }
-
-    if ($('refreshBtn')) {
-      $('refreshBtn').onclick = load;
-    }
+    if ($('sortSelect')) $('sortSelect').addEventListener('change', load);
+    if ($('loadMore')) $('loadMore').onclick = loadMoreCodes;
+    if ($('refreshBtn')) $('refreshBtn').onclick = load;
 
     if ($('clearHidden')) {
       $('clearHidden').onclick = () => {
@@ -704,7 +443,10 @@
     }
 
     if ($('submitCodes')) {
-      $('submitCodes').onclick = shareCodes;
+      $('submitCodes').addEventListener('click', event => {
+        event.preventDefault();
+        shareCodes();
+      });
     }
 
     if ($('adminToggle')) {
@@ -712,37 +454,64 @@
         if ($('codesPanel')) $('codesPanel').hidden = true;
         if ($('sharePanel')) $('sharePanel').hidden = true;
         if ($('adminPanel')) $('adminPanel').hidden = false;
-
-        showAdminState(adminLoggedIn);
       };
     }
 
     if ($('loginBtn')) {
-      $('loginBtn').onclick = loginAdmin;
+      $('loginBtn').onclick = async () => {
+        const result = $('loginResult');
+        const btn = $('loginBtn');
+        if (btn) btn.disabled = true;
+
+        try {
+          const email = $('adminEmail') ? $('adminEmail').value.trim() : '';
+          const password = $('adminPassword') ? $('adminPassword').value : '';
+
+          const data = await api('/api/admin/login', {
+            method: 'POST',
+            body: JSON.stringify({ email, password })
+          });
+
+          adminToken = data.token;
+          sessionStorage.setItem(tokenKey, adminToken);
+
+          if (result) {
+            result.className = 'result success';
+            result.textContent = 'تم تسجيل الدخول بنجاح.';
+          }
+          if ($('adminLogin')) $('adminLogin').hidden = true;
+          if ($('adminTools')) $('adminTools').hidden = false;
+          await adminLoad();
+        } catch (error) {
+          if (result) {
+            result.className = 'result error';
+            result.textContent = 'تعذر تسجيل الدخول: ' + error.message;
+          }
+        } finally {
+          if (btn) btn.disabled = false;
+        }
+      };
     }
 
-    if ($('adminPassword')) {
-      $('adminPassword').addEventListener('keydown', event => {
-        if (event.key === 'Enter') loginAdmin();
-      });
-    }
-
-    if ($('addPinnedBtn')) {
-      $('addPinnedBtn').onclick = addPinnedCode;
-    }
-
+    if ($('addPinnedBtn')) $('addPinnedBtn').onclick = addPinnedCode;
     if ($('pinnedCodeInput')) {
       $('pinnedCodeInput').addEventListener('keydown', event => {
-        if (event.key === 'Enter') addPinnedCode();
+        if (event.key === 'Enter') {
+          event.preventDefault();
+          addPinnedCode();
+        }
       });
     }
-
-    if ($('adminRefresh')) {
-      $('adminRefresh').onclick = adminLoad;
-    }
+    if ($('adminRefresh')) $('adminRefresh').onclick = adminLoad;
 
     if ($('logoutBtn')) {
-      $('logoutBtn').onclick = logoutAdmin;
+      $('logoutBtn').onclick = () => {
+        clearAdminSession();
+        if ($('loginResult')) {
+          $('loginResult').className = 'result success';
+          $('loginResult').textContent = 'تم تسجيل الخروج.';
+        }
+      };
     }
 
     load();
@@ -753,5 +522,4 @@
   } else {
     start();
   }
-
 })();
